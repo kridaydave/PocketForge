@@ -157,7 +157,7 @@ private fun HeaderPanel() {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                StatusChip(text = "SDK 37", color = ForgeGreen, dark = true)
+                StatusChip(text = "SDK 36", color = ForgeGreen, dark = true)
                 StatusChip(text = "Kotlin 2.3", color = ForgeAmber, dark = true)
                 StatusChip(text = "Compose", color = ForgeCoral, dark = true)
             }
