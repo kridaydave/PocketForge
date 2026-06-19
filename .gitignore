@@ -1,0 +1,16 @@
+# Local Codex/crew memory
+memory/
+
+# Local machine/editor state
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Android/Gradle local outputs
+.gradle/
+build/
+**/build/
+local.properties
+*.apk
+*.aab
