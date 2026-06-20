@@ -400,32 +400,15 @@ private fun BlueprintScreen(
         output = taskOutput,
     )
 
-    ProviderRouterPanel()
+    RunPlanPreview(
+        title = taskTitle,
+        goal = taskGoal,
+        repo = taskRepo,
+        constraints = taskConstraints,
+        output = taskOutput,
+    )
 
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        PlanCell(
-            modifier = Modifier.weight(1f),
-            label = "Stack",
-            value = "Compose",
-        )
-        PlanCell(
-            modifier = Modifier.weight(1f),
-            label = "Build",
-            value = "CI helper",
-        )
-    }
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        PlanCell(
-            modifier = Modifier.weight(1f),
-            label = "Risk",
-            value = "Key limits",
-        )
-        PlanCell(
-            modifier = Modifier.weight(1f),
-            label = "Cut first",
-            value = "Real AI",
-        )
-    }
+    ProviderRouterPanel()
 
     RailCard(label = "Architecture sketch") {
         Row(
@@ -678,6 +661,116 @@ private fun ProviderRouterPanel() {
     }
 }
 
+@Composable
+private fun RunPlanPreview(
+    title: String,
+    goal: String,
+    repo: String,
+    constraints: String,
+    output: String,
+) {
+    val runPlan = remember(title, goal, repo, constraints, output) {
+        buildRunPlanPreview(
+            title = title,
+            goal = goal,
+            repo = repo,
+            constraints = constraints,
+            output = output,
+        )
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = ForgeInk,
+        border = BorderStroke(2.dp, ForgePaper),
+    ) {
+        Column(
+            modifier = Modifier.padding(15.dp),
+            verticalArrangement = Arrangement.spacedBy(11.dp),
+        ) {
+            LabelText(text = "Run plan preview", dark = false)
+            Text(
+                text = "Phone sandbox draft",
+                color = ForgePaper,
+                fontSize = 23.sp,
+                lineHeight = 25.sp,
+                fontWeight = FontWeight.ExtraBold,
+            )
+            Text(
+                text = "Preview only. This turns the brief into local workflow steps; it does not execute code yet.",
+                color = ForgePaper.copy(alpha = 0.72f),
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                PlanCell(modifier = Modifier.weight(1f), label = "Target", value = runPlan.target)
+                PlanCell(modifier = Modifier.weight(1f), label = "Likely files", value = runPlan.likelyFiles)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                PlanCell(modifier = Modifier.weight(1f), label = "Checks", value = runPlan.checks)
+                PlanCell(modifier = Modifier.weight(1f), label = "Result", value = runPlan.result)
+            }
+
+            runPlan.steps.forEachIndexed { index, step ->
+                RunPlanStepRow(
+                    number = index + 1,
+                    step = step,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RunPlanStepRow(
+    number: Int,
+    step: RunPlanStep,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(29.dp)
+                .clip(CircleShape)
+                .background(step.color),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = number.toString(),
+                color = ForgeInk,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.ExtraBold,
+            )
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = step.title,
+                color = ForgePaper,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.ExtraBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = step.detail,
+                color = ForgePaper.copy(alpha = 0.68f),
+                fontSize = 10.sp,
+                lineHeight = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        StatusChip(text = step.state, color = step.color)
+    }
+}
+
 private fun buildAgentBrief(
     title: String,
     goal: String,
@@ -708,6 +801,61 @@ private fun buildAgentBrief(
         3. Validate with lightweight checks or CI as configured.
         4. Summarize touched files, risks, and next action.
     """.trimIndent()
+}
+
+private fun buildRunPlanPreview(
+    title: String,
+    goal: String,
+    repo: String,
+    constraints: String,
+    output: String,
+): RunPlanPreviewModel {
+    val normalizedTitle = title.ifBlank { "Untitled local task" }
+    val normalizedGoal = goal.ifBlank { "Clarify the change before editing code." }
+    val normalizedRepo = repo.ifBlank { "Current project" }
+    val normalizedConstraints = constraints.ifBlank { "Use existing patterns and keep edits scoped." }
+    val normalizedOutput = output.ifBlank { "Summary, validation notes, and next action." }
+    val likelyFiles = inferLikelyFiles(normalizedGoal, normalizedOutput)
+    val checks = inferLightweightChecks(normalizedConstraints)
+
+    return RunPlanPreviewModel(
+        target = normalizedRepo.takePreviewWords(maxWords = 4),
+        likelyFiles = likelyFiles,
+        checks = checks,
+        result = "User summary",
+        steps = listOf(
+            RunPlanStep(
+                title = "Inspect local repo",
+                detail = "Open $normalizedRepo, read status, and find files tied to ${normalizedTitle.takePreviewWords(maxWords = 5)}.",
+                state = "Local",
+                color = ForgeMint,
+            ),
+            RunPlanStep(
+                title = "Choose likely files",
+                detail = "Start with $likelyFiles, then narrow by imports, UI state, and existing helpers.",
+                state = "Map",
+                color = ForgeBlue,
+            ),
+            RunPlanStep(
+                title = "Make smallest edit",
+                detail = normalizedGoal.takePreviewWords(maxWords = 14),
+                state = "Patch",
+                color = ForgeGold,
+            ),
+            RunPlanStep(
+                title = "Run phone-safe checks",
+                detail = checks,
+                state = "Check",
+                color = ForgeTeal,
+            ),
+            RunPlanStep(
+                title = "Summarize for you",
+                detail = normalizedOutput.takePreviewWords(maxWords = 14),
+                state = "Review",
+                color = ForgePeach,
+            ),
+        ),
+    )
 }
 
 @Composable
@@ -1445,12 +1593,72 @@ private data class AgentTaskDraft(
     val output: String,
 )
 
+private data class RunPlanPreviewModel(
+    val target: String,
+    val likelyFiles: String,
+    val checks: String,
+    val result: String,
+    val steps: List<RunPlanStep>,
+)
+
+private data class RunPlanStep(
+    val title: String,
+    val detail: String,
+    val state: String,
+    val color: Color,
+)
+
 private fun AgentTaskDraft.isSameBriefAs(other: AgentTaskDraft): Boolean {
     return title == other.title &&
         goal == other.goal &&
         repo == other.repo &&
         constraints == other.constraints &&
         output == other.output
+}
+
+private fun inferLikelyFiles(goal: String, output: String): String {
+    val searchableText = "$goal $output".lowercase()
+
+    return when {
+        searchableText.contains("compose") ||
+            searchableText.contains("ui") ||
+            searchableText.contains("screen") ||
+            searchableText.contains("tab") -> "MainActivity.kt"
+        searchableText.contains("apk") ||
+            searchableText.contains("ci") ||
+            searchableText.contains("workflow") ||
+            searchableText.contains("actions") -> ".github/workflows"
+        searchableText.contains("readme") ||
+            searchableText.contains("docs") ||
+            searchableText.contains("plan") -> "README/plan"
+        searchableText.contains("gradle") ||
+            searchableText.contains("dependency") -> "Gradle files"
+        else -> "repo matches"
+    }
+}
+
+private fun inferLightweightChecks(constraints: String): String {
+    val searchableText = constraints.lowercase()
+
+    return if (
+        searchableText.contains("no local android") ||
+        searchableText.contains("no android builds") ||
+        searchableText.contains("no local builds")
+    ) {
+        "Diff + static scan"
+    } else {
+        "Available local checks"
+    }
+}
+
+private fun String.takePreviewWords(maxWords: Int): String {
+    val words = trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+    if (words.isEmpty()) return ""
+    return if (words.size <= maxWords) {
+        words.joinToString(" ")
+    } else {
+        words.take(maxWords).joinToString(" ") + "..."
+    }
 }
 
 private val DefaultAgentTaskDraft = AgentTaskDraft(
