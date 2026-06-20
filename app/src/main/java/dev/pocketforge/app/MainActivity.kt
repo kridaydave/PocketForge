@@ -675,6 +675,7 @@ private fun RunPlanPreview(
 ) {
     val clipboardManager = LocalClipboardManager.current
     var manualReady by remember(title, goal, repo, constraints, output) { mutableStateOf(false) }
+    var actionMessage by remember(title, goal, repo, constraints, output) { mutableStateOf("") }
     val runPlan = remember(title, goal, repo, constraints, output) {
         buildRunPlanPreview(
             title = title,
@@ -764,19 +765,35 @@ private fun RunPlanPreview(
                     enabled = true,
                     onClick = {
                         clipboardManager.setText(AnnotatedString(buildRunPlanCopy(runPlan, readinessLabel)))
+                        actionMessage = "Plan copied. Preview only; no code ran."
                     },
                 )
                 CompactPlanAction(
                     modifier = Modifier.weight(1f),
                     text = "Save as brief",
                     enabled = true,
-                    onClick = onSaveAsBrief,
+                    onClick = {
+                        onSaveAsBrief()
+                        actionMessage = "Saved to Recent briefs. Matching briefs update the existing row."
+                    },
                 )
                 CompactPlanAction(
                     modifier = Modifier.weight(1f),
                     text = if (readinessLabel == "Ready") "Ready" else "Mark ready",
                     enabled = runPlan.missingDetails.isEmpty(),
-                    onClick = { manualReady = true },
+                    onClick = {
+                        manualReady = true
+                        actionMessage = "Marked ready for local sandbox planning."
+                    },
+                )
+            }
+            if (actionMessage.isNotBlank()) {
+                Text(
+                    text = actionMessage,
+                    color = ForgePaper.copy(alpha = 0.72f),
+                    fontSize = 10.sp,
+                    lineHeight = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
 
