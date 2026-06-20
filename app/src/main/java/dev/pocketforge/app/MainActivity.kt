@@ -767,7 +767,12 @@ private fun RunPlanStepRow(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        StatusChip(text = step.state, color = step.color)
+        Box(
+            modifier = Modifier.size(width = 58.dp, height = 29.dp),
+            contentAlignment = Alignment.CenterEnd,
+        ) {
+            StatusChip(text = step.state, color = step.color)
+        }
     }
 }
 
