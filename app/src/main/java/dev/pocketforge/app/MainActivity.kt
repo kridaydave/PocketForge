@@ -1,5 +1,7 @@
 package dev.pocketforge.app
 
+import android.content.Context
+import android.content.SharedPreferences
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -51,27 +53,47 @@ import androidx.compose.ui.unit.sp
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val draftStore = getSharedPreferences(AGENT_DRAFT_PREFS, Context.MODE_PRIVATE)
+
         setContent {
-            PocketForgeApp()
+            PocketForgeApp(
+                initialDraft = draftStore.loadAgentTaskDraft(),
+                onDraftChanged = draftStore::saveAgentTaskDraft,
+            )
         }
     }
 }
 
 @Composable
-private fun PocketForgeApp() {
+private fun PocketForgeApp(
+    initialDraft: AgentTaskDraft = DefaultAgentTaskDraft,
+    onDraftChanged: (AgentTaskDraft) -> Unit = {},
+) {
     var selectedTab by remember { mutableStateOf(WorkbenchTab.Today) }
     var selectedFilter by remember { mutableStateOf("Mobile") }
     var selectedTheme by remember { mutableStateOf(ForgeGreen) }
-    var taskTitle by remember { mutableStateOf("Add offline idea capture") }
-    var taskGoal by remember {
-        mutableStateOf("Let me capture a coding idea on my phone, turn it into a scoped task, and hand it to an agent later.")
-    }
-    var taskRepo by remember { mutableStateOf("PocketForge / phase-1-ui") }
-    var taskConstraints by remember {
-        mutableStateOf("Local-first. No local Android builds. Use GitHub Actions for APKs. Keep API providers legitimate.")
-    }
-    var taskOutput by remember {
-        mutableStateOf("Implementation plan, touched files, validation steps, and a commit-ready branch.")
+    var taskTitle by remember { mutableStateOf(initialDraft.title) }
+    var taskGoal by remember { mutableStateOf(initialDraft.goal) }
+    var taskRepo by remember { mutableStateOf(initialDraft.repo) }
+    var taskConstraints by remember { mutableStateOf(initialDraft.constraints) }
+    var taskOutput by remember { mutableStateOf(initialDraft.output) }
+
+    fun saveDraft(
+        title: String = taskTitle,
+        goal: String = taskGoal,
+        repo: String = taskRepo,
+        constraints: String = taskConstraints,
+        output: String = taskOutput,
+    ) {
+        onDraftChanged(
+            AgentTaskDraft(
+                title = title,
+                goal = goal,
+                repo = repo,
+                constraints = constraints,
+                output = output,
+            ),
+        )
     }
 
     PocketForgeTheme {
@@ -103,15 +125,30 @@ private fun PocketForgeApp() {
 
                         WorkbenchTab.Build -> BlueprintScreen(
                             taskTitle = taskTitle,
-                            onTaskTitleChange = { taskTitle = it },
+                            onTaskTitleChange = {
+                                taskTitle = it
+                                saveDraft(title = it)
+                            },
                             taskGoal = taskGoal,
-                            onTaskGoalChange = { taskGoal = it },
+                            onTaskGoalChange = {
+                                taskGoal = it
+                                saveDraft(goal = it)
+                            },
                             taskRepo = taskRepo,
-                            onTaskRepoChange = { taskRepo = it },
+                            onTaskRepoChange = {
+                                taskRepo = it
+                                saveDraft(repo = it)
+                            },
                             taskConstraints = taskConstraints,
-                            onTaskConstraintsChange = { taskConstraints = it },
+                            onTaskConstraintsChange = {
+                                taskConstraints = it
+                                saveDraft(constraints = it)
+                            },
                             taskOutput = taskOutput,
-                            onTaskOutputChange = { taskOutput = it },
+                            onTaskOutputChange = {
+                                taskOutput = it
+                                saveDraft(output = it)
+                            },
                         )
                         WorkbenchTab.Ci -> PipelineScreen()
                         WorkbenchTab.Ship -> ShipScreen(
@@ -184,8 +221,8 @@ private fun LogoMark() {
 @Composable
 private fun TodayScreen() {
     HeroPanel(
-        title = "Shape one app before lunch.",
-        body = "Turn a loose note into a scoped Android project with screens, milestones, and a cloud build path.",
+        title = "Code from your phone.",
+        body = "Turn a loose note into a local agent task you can inspect, edit, run, and iterate toward on-device.",
         primaryAction = "New Forge",
         secondaryAction = "Capture",
     )
@@ -218,7 +255,7 @@ private fun TodayScreen() {
     QueueRow(
         badge = "B",
         title = "AI provider router",
-        detail = "OpenRouter first, fallback providers later",
+        detail = "Local sandbox first, optional providers later",
         state = "Next",
         color = ForgeGold,
     )
@@ -293,6 +330,8 @@ private fun BlueprintScreen(
 ) {
     DarkBlueprintPanel()
 
+    DraftSavedRow()
+
     AgentTaskComposer(
         title = taskTitle,
         onTitleChange = onTaskTitleChange,
@@ -325,7 +364,7 @@ private fun BlueprintScreen(
         PlanCell(
             modifier = Modifier.weight(1f),
             label = "Build",
-            value = "Cloud APK",
+            value = "CI helper",
         )
     }
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -462,13 +501,13 @@ private fun AgentBriefCard(
 private fun ProviderRouterPanel() {
     FeatureCard(
         label = "Provider router",
-        title = "OpenRouter first, clean fallbacks later.",
-        body = "Future AI calls will use user-configured provider keys, budget caps, rate-limit backoff, and provider health routing. PocketForge will not farm keys, rotate accounts to evade limits, or hide provider costs.",
+        title = "Local agent first, clean integrations later.",
+        body = "Future workflows should run in an on-device sandbox where you can inspect, edit, and execute code locally. Provider keys and cloud CI stay optional integration points with clear costs and limits.",
         color = ForgeMint,
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            PlanCell(modifier = Modifier.weight(1f), label = "Primary", value = "OpenRouter")
-            PlanCell(modifier = Modifier.weight(1f), label = "Mode", value = "Local draft")
+            PlanCell(modifier = Modifier.weight(1f), label = "Primary", value = "On-device")
+            PlanCell(modifier = Modifier.weight(1f), label = "Mode", value = "Saved draft")
         }
     }
 }
@@ -508,9 +547,9 @@ private fun buildAgentBrief(
 @Composable
 private fun PipelineScreen() {
     FeatureCard(
-        label = "Cloud build",
+        label = "Optional cloud build",
         title = "APK artifact runs in GitHub Actions.",
-        body = "Push this branch to trigger the debug APK workflow.",
+        body = "Cloud CI is a release helper while the core coding workflow moves toward local phone-side sandboxes.",
         color = ForgePeach,
     ) {
         LinearProgressIndicator(
@@ -841,19 +880,51 @@ private fun DarkBlueprintPanel() {
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                text = "Ready to scaffold.",
+                text = "Ready to brief.",
                 color = ForgePaper,
                 fontSize = 30.sp,
                 lineHeight = 31.sp,
                 fontWeight = FontWeight.ExtraBold,
             )
             Text(
-                text = "Five tabs, one local design direction, and GitHub Actions owns the Android build.",
+                text = "Draft a phone-side coding task now; keep cloud services as optional handoff points.",
                 color = ForgePaper.copy(alpha = 0.72f),
                 fontSize = 12.sp,
                 lineHeight = 17.sp,
                 fontWeight = FontWeight.SemiBold,
             )
+        }
+    }
+}
+
+@Composable
+private fun DraftSavedRow() {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = ForgePaper,
+        border = BorderStroke(2.dp, ForgeInk),
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Local draft persists",
+                    color = ForgeInk,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+                Text(
+                    text = "Agent task fields save locally on this device.",
+                    color = ForgeMuted,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            StatusChip(text = "Saved", color = ForgeTeal)
         }
     }
 }
@@ -1198,6 +1269,50 @@ private enum class WorkbenchTab(
     Build("Build", "Blueprint"),
     Ci("CI", "Pipeline"),
     Ship("Ship", "Release Pocket"),
+}
+
+private data class AgentTaskDraft(
+    val title: String,
+    val goal: String,
+    val repo: String,
+    val constraints: String,
+    val output: String,
+)
+
+private val DefaultAgentTaskDraft = AgentTaskDraft(
+    title = "Add offline idea capture",
+    goal = "Let me capture a coding idea on my phone, turn it into a scoped task, and hand it to a local agent later.",
+    repo = "PocketForge / phase-1-ui",
+    constraints = "Local-first. No local Android builds. Use GitHub Actions only as optional APK CI. Keep API providers legitimate.",
+    output = "Implementation plan, touched files, validation steps, and a commit-ready branch.",
+)
+
+private const val AGENT_DRAFT_PREFS = "agent_task_draft"
+private const val PREF_TASK_TITLE = "task_title"
+private const val PREF_TASK_GOAL = "task_goal"
+private const val PREF_TASK_REPO = "task_repo"
+private const val PREF_TASK_CONSTRAINTS = "task_constraints"
+private const val PREF_TASK_OUTPUT = "task_output"
+
+private fun SharedPreferences.loadAgentTaskDraft(): AgentTaskDraft {
+    return AgentTaskDraft(
+        title = getString(PREF_TASK_TITLE, DefaultAgentTaskDraft.title) ?: DefaultAgentTaskDraft.title,
+        goal = getString(PREF_TASK_GOAL, DefaultAgentTaskDraft.goal) ?: DefaultAgentTaskDraft.goal,
+        repo = getString(PREF_TASK_REPO, DefaultAgentTaskDraft.repo) ?: DefaultAgentTaskDraft.repo,
+        constraints = getString(PREF_TASK_CONSTRAINTS, DefaultAgentTaskDraft.constraints)
+            ?: DefaultAgentTaskDraft.constraints,
+        output = getString(PREF_TASK_OUTPUT, DefaultAgentTaskDraft.output) ?: DefaultAgentTaskDraft.output,
+    )
+}
+
+private fun SharedPreferences.saveAgentTaskDraft(draft: AgentTaskDraft) {
+    edit()
+        .putString(PREF_TASK_TITLE, draft.title)
+        .putString(PREF_TASK_GOAL, draft.goal)
+        .putString(PREF_TASK_REPO, draft.repo)
+        .putString(PREF_TASK_CONSTRAINTS, draft.constraints)
+        .putString(PREF_TASK_OUTPUT, draft.output)
+        .apply()
 }
 
 private val ForgeInk = Color(0xFF111214)
