@@ -14,3 +14,7 @@ build/
 local.properties
 *.apk
 *.aab
+
+# Published by GitHub Actions for easy phone downloads
+!downloads/
+!downloads/*.apk

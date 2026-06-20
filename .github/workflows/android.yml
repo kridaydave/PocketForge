@@ -2,11 +2,13 @@ name: Android APK
 
 on:
   push:
+    paths-ignore:
+      - 'downloads/**'
   pull_request:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-debug-apk:
@@ -43,3 +45,18 @@ jobs:
           name: pocketforge-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+      - name: Publish debug APK into repo files
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p downloads
+          cp app/build/outputs/apk/debug/app-debug.apk downloads/pocketforge-debug.apk
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f downloads/pocketforge-debug.apk
+          if git diff --cached --quiet; then
+            echo "APK file is unchanged."
+          else
+            git commit -m "Publish debug APK"
+            git push origin HEAD:${GITHUB_REF_NAME}
+          fi
