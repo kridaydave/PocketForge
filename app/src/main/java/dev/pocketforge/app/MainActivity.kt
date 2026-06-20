@@ -27,6 +27,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -61,6 +62,17 @@ private fun PocketForgeApp() {
     var selectedTab by remember { mutableStateOf(WorkbenchTab.Today) }
     var selectedFilter by remember { mutableStateOf("Mobile") }
     var selectedTheme by remember { mutableStateOf(ForgeGreen) }
+    var taskTitle by remember { mutableStateOf("Add offline idea capture") }
+    var taskGoal by remember {
+        mutableStateOf("Let me capture a coding idea on my phone, turn it into a scoped task, and hand it to an agent later.")
+    }
+    var taskRepo by remember { mutableStateOf("PocketForge / phase-1-ui") }
+    var taskConstraints by remember {
+        mutableStateOf("Local-first. No local Android builds. Use GitHub Actions for APKs. Keep API providers legitimate.")
+    }
+    var taskOutput by remember {
+        mutableStateOf("Implementation plan, touched files, validation steps, and a commit-ready branch.")
+    }
 
     PocketForgeTheme {
         Surface(
@@ -89,7 +101,18 @@ private fun PocketForgeApp() {
                             onFilterSelected = { selectedFilter = it },
                         )
 
-                        WorkbenchTab.Build -> BlueprintScreen()
+                        WorkbenchTab.Build -> BlueprintScreen(
+                            taskTitle = taskTitle,
+                            onTaskTitleChange = { taskTitle = it },
+                            taskGoal = taskGoal,
+                            onTaskGoalChange = { taskGoal = it },
+                            taskRepo = taskRepo,
+                            onTaskRepoChange = { taskRepo = it },
+                            taskConstraints = taskConstraints,
+                            onTaskConstraintsChange = { taskConstraints = it },
+                            taskOutput = taskOutput,
+                            onTaskOutputChange = { taskOutput = it },
+                        )
                         WorkbenchTab.Ci -> PipelineScreen()
                         WorkbenchTab.Ship -> ShipScreen(
                             selectedTheme = selectedTheme,
@@ -256,8 +279,42 @@ private fun IdeasScreen(
 }
 
 @Composable
-private fun BlueprintScreen() {
+private fun BlueprintScreen(
+    taskTitle: String,
+    onTaskTitleChange: (String) -> Unit,
+    taskGoal: String,
+    onTaskGoalChange: (String) -> Unit,
+    taskRepo: String,
+    onTaskRepoChange: (String) -> Unit,
+    taskConstraints: String,
+    onTaskConstraintsChange: (String) -> Unit,
+    taskOutput: String,
+    onTaskOutputChange: (String) -> Unit,
+) {
     DarkBlueprintPanel()
+
+    AgentTaskComposer(
+        title = taskTitle,
+        onTitleChange = onTaskTitleChange,
+        goal = taskGoal,
+        onGoalChange = onTaskGoalChange,
+        repo = taskRepo,
+        onRepoChange = onTaskRepoChange,
+        constraints = taskConstraints,
+        onConstraintsChange = onTaskConstraintsChange,
+        output = taskOutput,
+        onOutputChange = onTaskOutputChange,
+    )
+
+    AgentBriefCard(
+        title = taskTitle,
+        goal = taskGoal,
+        repo = taskRepo,
+        constraints = taskConstraints,
+        output = taskOutput,
+    )
+
+    ProviderRouterPanel()
 
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         PlanCell(
@@ -305,6 +362,147 @@ private fun BlueprintScreen() {
         state = "Rule",
         color = ForgeGold,
     )
+}
+
+@Composable
+private fun AgentTaskComposer(
+    title: String,
+    onTitleChange: (String) -> Unit,
+    goal: String,
+    onGoalChange: (String) -> Unit,
+    repo: String,
+    onRepoChange: (String) -> Unit,
+    constraints: String,
+    onConstraintsChange: (String) -> Unit,
+    output: String,
+    onOutputChange: (String) -> Unit,
+) {
+    FeatureCard(
+        label = "Agent task",
+        title = "Brief a coding agent from your phone.",
+        body = "This is local-only for now. Edit the fields and PocketForge shapes a deterministic handoff brief below.",
+        color = ForgeGold,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            ForgeTextField(label = "Title", value = title, onValueChange = onTitleChange, singleLine = true)
+            ForgeTextField(label = "Goal", value = goal, onValueChange = onGoalChange, minLines = 3)
+            ForgeTextField(label = "Repo / branch", value = repo, onValueChange = onRepoChange, singleLine = true)
+            ForgeTextField(label = "Constraints", value = constraints, onValueChange = onConstraintsChange, minLines = 3)
+            ForgeTextField(label = "Desired output", value = output, onValueChange = onOutputChange, minLines = 2)
+        }
+    }
+}
+
+@Composable
+private fun ForgeTextField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    singleLine: Boolean = false,
+    minLines: Int = 1,
+) {
+    OutlinedTextField(
+        modifier = Modifier.fillMaxWidth(),
+        value = value,
+        onValueChange = onValueChange,
+        label = {
+            Text(
+                text = label,
+                color = ForgeInk,
+                fontWeight = FontWeight.ExtraBold,
+            )
+        },
+        singleLine = singleLine,
+        minLines = minLines,
+        shape = MaterialTheme.shapes.medium,
+    )
+}
+
+@Composable
+private fun AgentBriefCard(
+    title: String,
+    goal: String,
+    repo: String,
+    constraints: String,
+    output: String,
+) {
+    val brief = remember(title, goal, repo, constraints, output) {
+        buildAgentBrief(
+            title = title,
+            goal = goal,
+            repo = repo,
+            constraints = constraints,
+            output = output,
+        )
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = ForgeInk,
+        border = BorderStroke(2.dp, ForgePaper),
+    ) {
+        Column(
+            modifier = Modifier.padding(15.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            LabelText(text = "Generated brief", dark = false)
+            Text(
+                text = brief,
+                color = ForgePaper,
+                fontSize = 12.sp,
+                lineHeight = 18.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProviderRouterPanel() {
+    FeatureCard(
+        label = "Provider router",
+        title = "OpenRouter first, clean fallbacks later.",
+        body = "Future AI calls will use user-configured provider keys, budget caps, rate-limit backoff, and provider health routing. PocketForge will not farm keys, rotate accounts to evade limits, or hide provider costs.",
+        color = ForgeMint,
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            PlanCell(modifier = Modifier.weight(1f), label = "Primary", value = "OpenRouter")
+            PlanCell(modifier = Modifier.weight(1f), label = "Mode", value = "Local draft")
+        }
+    }
+}
+
+private fun buildAgentBrief(
+    title: String,
+    goal: String,
+    repo: String,
+    constraints: String,
+    output: String,
+): String {
+    val normalizedTitle = title.ifBlank { "Untitled coding task" }
+    val normalizedGoal = goal.ifBlank { "Clarify the desired change before editing code." }
+    val normalizedRepo = repo.ifBlank { "Current repository and branch" }
+    val normalizedConstraints = constraints.ifBlank { "Respect existing project conventions and avoid unrelated changes." }
+    val normalizedOutput = output.ifBlank { "A concise implementation summary and validation notes." }
+
+    return """
+        Task: $normalizedTitle
+
+        Context: Work in $normalizedRepo.
+
+        Goal: $normalizedGoal
+
+        Constraints: $normalizedConstraints
+
+        Expected output: $normalizedOutput
+
+        Agent checklist:
+        1. Inspect the current branch and relevant files.
+        2. Make the smallest complete code change.
+        3. Validate with lightweight checks or CI as configured.
+        4. Summarize touched files, risks, and next action.
+    """.trimIndent()
 }
 
 @Composable
