@@ -44,6 +44,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -398,6 +400,7 @@ private fun BlueprintScreen(
         repo = taskRepo,
         constraints = taskConstraints,
         output = taskOutput,
+        onSaveAsBrief = onSaveBrief,
     )
 
     RunPlanPreview(
@@ -668,7 +671,10 @@ private fun RunPlanPreview(
     repo: String,
     constraints: String,
     output: String,
+    onSaveAsBrief: () -> Unit,
 ) {
+    val clipboardManager = LocalClipboardManager.current
+    var manualReady by remember(title, goal, repo, constraints, output) { mutableStateOf(false) }
     val runPlan = remember(title, goal, repo, constraints, output) {
         buildRunPlanPreview(
             title = title,
@@ -678,6 +684,8 @@ private fun RunPlanPreview(
             output = output,
         )
     }
+    val readinessLabel = if (manualReady && runPlan.missingDetails.isEmpty()) "Ready" else runPlan.readinessLabel
+    val readinessColor = if (manualReady && runPlan.missingDetails.isEmpty()) ForgeTeal else runPlan.readinessColor
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -689,7 +697,16 @@ private fun RunPlanPreview(
             modifier = Modifier.padding(15.dp),
             verticalArrangement = Arrangement.spacedBy(11.dp),
         ) {
-            LabelText(text = "Run plan preview", dark = false)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Box(modifier = Modifier.weight(1f)) {
+                    LabelText(text = "Run plan preview", dark = false)
+                }
+                StatusChip(text = readinessLabel, color = readinessColor)
+            }
             Text(
                 text = "Phone sandbox draft",
                 color = ForgePaper,
@@ -704,6 +721,33 @@ private fun RunPlanPreview(
                 lineHeight = 17.sp,
                 fontWeight = FontWeight.SemiBold,
             )
+            if (runPlan.missingDetails.isNotEmpty()) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.medium,
+                    color = ForgePaper.copy(alpha = 0.08f),
+                    border = BorderStroke(1.dp, ForgeGold.copy(alpha = 0.55f)),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            text = "Needs detail",
+                            color = ForgeGold,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                        )
+                        Text(
+                            text = "Add ${runPlan.missingDetails.joinToString()} before treating this as actionable phone work.",
+                            color = ForgePaper.copy(alpha = 0.74f),
+                            fontSize = 10.sp,
+                            lineHeight = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+            }
 
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 PlanCell(modifier = Modifier.weight(1f), label = "Target", value = runPlan.target)
@@ -712,6 +756,28 @@ private fun RunPlanPreview(
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 PlanCell(modifier = Modifier.weight(1f), label = "Checks", value = runPlan.checks)
                 PlanCell(modifier = Modifier.weight(1f), label = "Result", value = runPlan.result)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                CompactPlanAction(
+                    modifier = Modifier.weight(1f),
+                    text = "Copy plan",
+                    enabled = true,
+                    onClick = {
+                        clipboardManager.setText(AnnotatedString(buildRunPlanCopy(runPlan, readinessLabel)))
+                    },
+                )
+                CompactPlanAction(
+                    modifier = Modifier.weight(1f),
+                    text = "Save as brief",
+                    enabled = true,
+                    onClick = onSaveAsBrief,
+                )
+                CompactPlanAction(
+                    modifier = Modifier.weight(1f),
+                    text = if (readinessLabel == "Ready") "Ready" else "Mark ready",
+                    enabled = runPlan.missingDetails.isEmpty(),
+                    onClick = { manualReady = true },
+                )
             }
 
             runPlan.steps.forEachIndexed { index, step ->
@@ -776,6 +842,29 @@ private fun RunPlanStepRow(
     }
 }
 
+@Composable
+private fun CompactPlanAction(
+    modifier: Modifier = Modifier,
+    text: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    TextButton(
+        modifier = modifier,
+        enabled = enabled,
+        onClick = onClick,
+    ) {
+        Text(
+            text = text,
+            color = if (enabled) ForgeGold else ForgePaper.copy(alpha = 0.38f),
+            fontSize = 10.sp,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 private fun buildAgentBrief(
     title: String,
     goal: String,
@@ -815,6 +904,12 @@ private fun buildRunPlanPreview(
     constraints: String,
     output: String,
 ): RunPlanPreviewModel {
+    val missingDetails = findMissingRunPlanDetails(
+        title = title,
+        goal = goal,
+        repo = repo,
+        output = output,
+    )
     val normalizedTitle = title.ifBlank { "Untitled local task" }
     val normalizedGoal = goal.ifBlank { "Clarify the change before editing code." }
     val normalizedRepo = repo.ifBlank { "Current project" }
@@ -822,12 +917,21 @@ private fun buildRunPlanPreview(
     val normalizedOutput = output.ifBlank { "Summary, validation notes, and next action." }
     val likelyFiles = inferLikelyFiles(normalizedGoal, normalizedOutput)
     val checks = inferLightweightChecks(normalizedConstraints)
+    val readinessLabel = when {
+        missingDetails.isNotEmpty() -> "Needs detail"
+        constraints.isBlank() -> "Draft"
+        else -> "Draft"
+    }
+    val readinessColor = if (missingDetails.isNotEmpty()) ForgeGold else ForgeBlue
 
     return RunPlanPreviewModel(
         target = normalizedRepo.takePreviewWords(maxWords = 4),
         likelyFiles = likelyFiles,
         checks = checks,
         result = "User summary",
+        readinessLabel = readinessLabel,
+        readinessColor = readinessColor,
+        missingDetails = missingDetails,
         steps = listOf(
             RunPlanStep(
                 title = "Inspect local repo",
@@ -861,6 +965,35 @@ private fun buildRunPlanPreview(
             ),
         ),
     )
+}
+
+private fun buildRunPlanCopy(
+    runPlan: RunPlanPreviewModel,
+    readinessLabel: String,
+): String {
+    val missingDetails = if (runPlan.missingDetails.isEmpty()) {
+        "None"
+    } else {
+        runPlan.missingDetails.joinToString()
+    }
+
+    return buildString {
+        appendLine("PocketForge Run Plan")
+        appendLine("Status: $readinessLabel")
+        appendLine("Mode: Preview only, local phone sandbox planning")
+        appendLine()
+        appendLine("Target: ${runPlan.target}")
+        appendLine("Likely files: ${runPlan.likelyFiles}")
+        appendLine("Checks: ${runPlan.checks}")
+        appendLine("Result: ${runPlan.result}")
+        appendLine("Missing detail: $missingDetails")
+        appendLine()
+        appendLine("Steps:")
+        runPlan.steps.forEachIndexed { index, step ->
+            appendLine("${index + 1}. ${step.title} [${step.state}]")
+            appendLine("   ${step.detail}")
+        }
+    }.trim()
 }
 
 @Composable
@@ -1603,6 +1736,9 @@ private data class RunPlanPreviewModel(
     val likelyFiles: String,
     val checks: String,
     val result: String,
+    val readinessLabel: String,
+    val readinessColor: Color,
+    val missingDetails: List<String>,
     val steps: List<RunPlanStep>,
 )
 
@@ -1619,6 +1755,20 @@ private fun AgentTaskDraft.isSameBriefAs(other: AgentTaskDraft): Boolean {
         repo == other.repo &&
         constraints == other.constraints &&
         output == other.output
+}
+
+private fun findMissingRunPlanDetails(
+    title: String,
+    goal: String,
+    repo: String,
+    output: String,
+): List<String> {
+    return buildList {
+        if (title.isBlank()) add("a task title")
+        if (goal.trim().length < 24) add("a clearer goal")
+        if (repo.isBlank()) add("repo or branch")
+        if (output.trim().length < 12) add("desired output")
+    }
 }
 
 private fun inferLikelyFiles(goal: String, output: String): String {
