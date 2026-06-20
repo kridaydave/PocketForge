@@ -49,6 +49,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.json.JSONArray
+import org.json.JSONException
+import org.json.JSONObject
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -58,7 +61,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             PocketForgeApp(
                 initialDraft = draftStore.loadAgentTaskDraft(),
+                initialRecentBriefs = draftStore.loadRecentAgentBriefs(),
                 onDraftChanged = draftStore::saveAgentTaskDraft,
+                onRecentBriefsChanged = draftStore::saveRecentAgentBriefs,
             )
         }
     }
@@ -67,7 +72,9 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun PocketForgeApp(
     initialDraft: AgentTaskDraft = DefaultAgentTaskDraft,
+    initialRecentBriefs: List<AgentTaskDraft> = emptyList(),
     onDraftChanged: (AgentTaskDraft) -> Unit = {},
+    onRecentBriefsChanged: (List<AgentTaskDraft>) -> Unit = {},
 ) {
     var selectedTab by remember { mutableStateOf(WorkbenchTab.Today) }
     var selectedFilter by remember { mutableStateOf("Mobile") }
@@ -77,23 +84,48 @@ private fun PocketForgeApp(
     var taskRepo by remember { mutableStateOf(initialDraft.repo) }
     var taskConstraints by remember { mutableStateOf(initialDraft.constraints) }
     var taskOutput by remember { mutableStateOf(initialDraft.output) }
+    var recentBriefs by remember { mutableStateOf(initialRecentBriefs) }
 
-    fun saveDraft(
+    fun currentDraft(
         title: String = taskTitle,
         goal: String = taskGoal,
         repo: String = taskRepo,
         constraints: String = taskConstraints,
         output: String = taskOutput,
-    ) {
-        onDraftChanged(
-            AgentTaskDraft(
-                title = title,
-                goal = goal,
-                repo = repo,
-                constraints = constraints,
-                output = output,
-            ),
+    ): AgentTaskDraft {
+        return AgentTaskDraft(
+            title = title,
+            goal = goal,
+            repo = repo,
+            constraints = constraints,
+            output = output,
         )
+    }
+
+    fun saveDraft(draft: AgentTaskDraft = currentDraft()) {
+        onDraftChanged(draft)
+    }
+
+    fun restoreDraft(draft: AgentTaskDraft) {
+        taskTitle = draft.title
+        taskGoal = draft.goal
+        taskRepo = draft.repo
+        taskConstraints = draft.constraints
+        taskOutput = draft.output
+        saveDraft(draft)
+    }
+
+    fun saveCurrentBrief() {
+        val draft = currentDraft()
+        val updatedBriefs = (listOf(draft) + recentBriefs.filterNot { it.isSameBriefAs(draft) })
+            .take(MAX_RECENT_BRIEFS)
+        recentBriefs = updatedBriefs
+        onRecentBriefsChanged(updatedBriefs)
+        saveDraft(draft)
+    }
+
+    fun clearDraft() {
+        restoreDraft(EmptyAgentTaskDraft)
     }
 
     PocketForgeTheme {
@@ -127,28 +159,32 @@ private fun PocketForgeApp(
                             taskTitle = taskTitle,
                             onTaskTitleChange = {
                                 taskTitle = it
-                                saveDraft(title = it)
+                                saveDraft(currentDraft(title = it))
                             },
                             taskGoal = taskGoal,
                             onTaskGoalChange = {
                                 taskGoal = it
-                                saveDraft(goal = it)
+                                saveDraft(currentDraft(goal = it))
                             },
                             taskRepo = taskRepo,
                             onTaskRepoChange = {
                                 taskRepo = it
-                                saveDraft(repo = it)
+                                saveDraft(currentDraft(repo = it))
                             },
                             taskConstraints = taskConstraints,
                             onTaskConstraintsChange = {
                                 taskConstraints = it
-                                saveDraft(constraints = it)
+                                saveDraft(currentDraft(constraints = it))
                             },
                             taskOutput = taskOutput,
                             onTaskOutputChange = {
                                 taskOutput = it
-                                saveDraft(output = it)
+                                saveDraft(currentDraft(output = it))
                             },
+                            recentBriefs = recentBriefs,
+                            onSaveBrief = ::saveCurrentBrief,
+                            onSelectRecentBrief = ::restoreDraft,
+                            onClearDraft = ::clearDraft,
                         )
                         WorkbenchTab.Ci -> PipelineScreen()
                         WorkbenchTab.Ship -> ShipScreen(
@@ -327,10 +363,21 @@ private fun BlueprintScreen(
     onTaskConstraintsChange: (String) -> Unit,
     taskOutput: String,
     onTaskOutputChange: (String) -> Unit,
+    recentBriefs: List<AgentTaskDraft>,
+    onSaveBrief: () -> Unit,
+    onSelectRecentBrief: (AgentTaskDraft) -> Unit,
+    onClearDraft: () -> Unit,
 ) {
     DarkBlueprintPanel()
 
     DraftSavedRow()
+
+    RecentBriefsPanel(
+        recentBriefs = recentBriefs,
+        onSaveBrief = onSaveBrief,
+        onSelectBrief = onSelectRecentBrief,
+        onClearDraft = onClearDraft,
+    )
 
     AgentTaskComposer(
         title = taskTitle,
@@ -401,6 +448,125 @@ private fun BlueprintScreen(
         state = "Rule",
         color = ForgeGold,
     )
+}
+
+@Composable
+private fun RecentBriefsPanel(
+    recentBriefs: List<AgentTaskDraft>,
+    onSaveBrief: () -> Unit,
+    onSelectBrief: (AgentTaskDraft) -> Unit,
+    onClearDraft: () -> Unit,
+) {
+    FeatureCard(
+        label = "Recent briefs",
+        title = "Pocket memory for local builds.",
+        body = "Save a spark here, then restore it when the phone-side sandbox is ready for another pass.",
+        color = ForgeBlue,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    modifier = Modifier.weight(1f),
+                    onClick = onSaveBrief,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ForgeInk,
+                        contentColor = ForgePaper,
+                    ),
+                    shape = MaterialTheme.shapes.medium,
+                ) {
+                    Text(
+                        text = "Save brief",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                }
+                TextButton(
+                    modifier = Modifier.weight(1f),
+                    onClick = onClearDraft,
+                ) {
+                    Text(
+                        text = "New brief",
+                        color = ForgeRust,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                }
+            }
+
+            if (recentBriefs.isEmpty()) {
+                Text(
+                    text = "No saved briefs yet.",
+                    color = ForgeMuted,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            } else {
+                recentBriefs.forEachIndexed { index, brief ->
+                    RecentBriefRow(
+                        brief = brief,
+                        index = index,
+                        onClick = { onSelectBrief(brief) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecentBriefRow(
+    brief: AgentTaskDraft,
+    index: Int,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = MaterialTheme.shapes.medium,
+        color = ForgePaper,
+        border = BorderStroke(2.dp, ForgeInk),
+    ) {
+        Row(
+            modifier = Modifier.padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(ForgeMint),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = (index + 1).toString(),
+                    color = ForgeInk,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = brief.title.ifBlank { "Untitled local task" },
+                    color = ForgeInk,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = brief.goal.ifBlank { "Restore this brief and sharpen the next sandbox run." },
+                    color = ForgeMuted,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            StatusChip(text = "Load", color = ForgeTeal)
+        }
+    }
 }
 
 @Composable
@@ -1279,6 +1445,14 @@ private data class AgentTaskDraft(
     val output: String,
 )
 
+private fun AgentTaskDraft.isSameBriefAs(other: AgentTaskDraft): Boolean {
+    return title == other.title &&
+        goal == other.goal &&
+        repo == other.repo &&
+        constraints == other.constraints &&
+        output == other.output
+}
+
 private val DefaultAgentTaskDraft = AgentTaskDraft(
     title = "Add offline idea capture",
     goal = "Let me capture a coding idea on my phone, turn it into a scoped task, and hand it to a local agent later.",
@@ -1287,12 +1461,27 @@ private val DefaultAgentTaskDraft = AgentTaskDraft(
     output = "Implementation plan, touched files, validation steps, and a commit-ready branch.",
 )
 
+private val EmptyAgentTaskDraft = AgentTaskDraft(
+    title = "",
+    goal = "",
+    repo = "",
+    constraints = "",
+    output = "",
+)
+
 private const val AGENT_DRAFT_PREFS = "agent_task_draft"
 private const val PREF_TASK_TITLE = "task_title"
 private const val PREF_TASK_GOAL = "task_goal"
 private const val PREF_TASK_REPO = "task_repo"
 private const val PREF_TASK_CONSTRAINTS = "task_constraints"
 private const val PREF_TASK_OUTPUT = "task_output"
+private const val PREF_RECENT_BRIEFS = "recent_briefs"
+private const val MAX_RECENT_BRIEFS = 5
+private const val JSON_TITLE = "title"
+private const val JSON_GOAL = "goal"
+private const val JSON_REPO = "repo"
+private const val JSON_CONSTRAINTS = "constraints"
+private const val JSON_OUTPUT = "output"
 
 private fun SharedPreferences.loadAgentTaskDraft(): AgentTaskDraft {
     return AgentTaskDraft(
@@ -1312,6 +1501,48 @@ private fun SharedPreferences.saveAgentTaskDraft(draft: AgentTaskDraft) {
         .putString(PREF_TASK_REPO, draft.repo)
         .putString(PREF_TASK_CONSTRAINTS, draft.constraints)
         .putString(PREF_TASK_OUTPUT, draft.output)
+        .apply()
+}
+
+private fun SharedPreferences.loadRecentAgentBriefs(): List<AgentTaskDraft> {
+    val storedBriefs = getString(PREF_RECENT_BRIEFS, null) ?: return emptyList()
+
+    return try {
+        val jsonBriefs = JSONArray(storedBriefs)
+        buildList {
+            for (index in 0 until minOf(jsonBriefs.length(), MAX_RECENT_BRIEFS)) {
+                val brief = jsonBriefs.optJSONObject(index) ?: continue
+                add(
+                    AgentTaskDraft(
+                        title = brief.optString(JSON_TITLE),
+                        goal = brief.optString(JSON_GOAL),
+                        repo = brief.optString(JSON_REPO),
+                        constraints = brief.optString(JSON_CONSTRAINTS),
+                        output = brief.optString(JSON_OUTPUT),
+                    ),
+                )
+            }
+        }
+    } catch (ignored: JSONException) {
+        emptyList()
+    }
+}
+
+private fun SharedPreferences.saveRecentAgentBriefs(briefs: List<AgentTaskDraft>) {
+    val jsonBriefs = JSONArray()
+    briefs.take(MAX_RECENT_BRIEFS).forEach { brief ->
+        jsonBriefs.put(
+            JSONObject()
+                .put(JSON_TITLE, brief.title)
+                .put(JSON_GOAL, brief.goal)
+                .put(JSON_REPO, brief.repo)
+                .put(JSON_CONSTRAINTS, brief.constraints)
+                .put(JSON_OUTPUT, brief.output),
+        )
+    }
+
+    edit()
+        .putString(PREF_RECENT_BRIEFS, jsonBriefs.toString())
         .apply()
 }
 
