@@ -400,7 +400,6 @@ private fun BlueprintScreen(
         repo = taskRepo,
         constraints = taskConstraints,
         output = taskOutput,
-        onSaveAsBrief = onSaveBrief,
     )
 
     RunPlanPreview(
@@ -409,6 +408,7 @@ private fun BlueprintScreen(
         repo = taskRepo,
         constraints = taskConstraints,
         output = taskOutput,
+        onSaveAsBrief = onSaveBrief,
     )
 
     ProviderRouterPanel()
