@@ -86,6 +86,7 @@ private fun PocketForgeApp(
     var taskRepo by remember { mutableStateOf(initialDraft.repo) }
     var taskConstraints by remember { mutableStateOf(initialDraft.constraints) }
     var taskOutput by remember { mutableStateOf(initialDraft.output) }
+    var taskMarkedReady by remember { mutableStateOf(initialDraft.markedReady) }
     var recentBriefs by remember { mutableStateOf(initialRecentBriefs) }
 
     fun currentDraft(
@@ -94,6 +95,7 @@ private fun PocketForgeApp(
         repo: String = taskRepo,
         constraints: String = taskConstraints,
         output: String = taskOutput,
+        markedReady: Boolean = taskMarkedReady,
     ): AgentTaskDraft {
         return AgentTaskDraft(
             title = title,
@@ -101,6 +103,7 @@ private fun PocketForgeApp(
             repo = repo,
             constraints = constraints,
             output = output,
+            markedReady = markedReady,
         )
     }
 
@@ -114,6 +117,7 @@ private fun PocketForgeApp(
         taskRepo = draft.repo
         taskConstraints = draft.constraints
         taskOutput = draft.output
+        taskMarkedReady = draft.markedReady
         saveDraft(draft)
     }
 
@@ -128,6 +132,18 @@ private fun PocketForgeApp(
 
     fun clearDraft() {
         restoreDraft(EmptyAgentTaskDraft)
+    }
+
+    fun updateCurrentReadyState() {
+        val readyDraft = currentDraft(markedReady = true)
+        taskMarkedReady = true
+        saveDraft(readyDraft)
+
+        val updatedBriefs = recentBriefs.map { brief ->
+            if (brief.isSameBriefAs(readyDraft)) readyDraft else brief
+        }
+        recentBriefs = updatedBriefs
+        onRecentBriefsChanged(updatedBriefs)
     }
 
     PocketForgeTheme {
@@ -161,32 +177,39 @@ private fun PocketForgeApp(
                             taskTitle = taskTitle,
                             onTaskTitleChange = {
                                 taskTitle = it
-                                saveDraft(currentDraft(title = it))
+                                taskMarkedReady = false
+                                saveDraft(currentDraft(title = it, markedReady = false))
                             },
                             taskGoal = taskGoal,
                             onTaskGoalChange = {
                                 taskGoal = it
-                                saveDraft(currentDraft(goal = it))
+                                taskMarkedReady = false
+                                saveDraft(currentDraft(goal = it, markedReady = false))
                             },
                             taskRepo = taskRepo,
                             onTaskRepoChange = {
                                 taskRepo = it
-                                saveDraft(currentDraft(repo = it))
+                                taskMarkedReady = false
+                                saveDraft(currentDraft(repo = it, markedReady = false))
                             },
                             taskConstraints = taskConstraints,
                             onTaskConstraintsChange = {
                                 taskConstraints = it
-                                saveDraft(currentDraft(constraints = it))
+                                taskMarkedReady = false
+                                saveDraft(currentDraft(constraints = it, markedReady = false))
                             },
                             taskOutput = taskOutput,
                             onTaskOutputChange = {
                                 taskOutput = it
-                                saveDraft(currentDraft(output = it))
+                                taskMarkedReady = false
+                                saveDraft(currentDraft(output = it, markedReady = false))
                             },
+                            currentBrief = currentDraft(),
                             recentBriefs = recentBriefs,
                             onSaveBrief = ::saveCurrentBrief,
                             onSelectRecentBrief = ::restoreDraft,
                             onClearDraft = ::clearDraft,
+                            onMarkReady = ::updateCurrentReadyState,
                         )
                         WorkbenchTab.Ci -> PipelineScreen()
                         WorkbenchTab.Ship -> ShipScreen(
@@ -365,16 +388,19 @@ private fun BlueprintScreen(
     onTaskConstraintsChange: (String) -> Unit,
     taskOutput: String,
     onTaskOutputChange: (String) -> Unit,
+    currentBrief: AgentTaskDraft,
     recentBriefs: List<AgentTaskDraft>,
     onSaveBrief: () -> Unit,
     onSelectRecentBrief: (AgentTaskDraft) -> Unit,
     onClearDraft: () -> Unit,
+    onMarkReady: () -> Unit,
 ) {
     DarkBlueprintPanel()
 
     DraftSavedRow()
 
     RecentBriefsPanel(
+        currentBrief = currentBrief,
         recentBriefs = recentBriefs,
         onSaveBrief = onSaveBrief,
         onSelectBrief = onSelectRecentBrief,
@@ -408,7 +434,9 @@ private fun BlueprintScreen(
         repo = taskRepo,
         constraints = taskConstraints,
         output = taskOutput,
+        markedReady = currentBrief.markedReady,
         onSaveAsBrief = onSaveBrief,
+        onMarkReady = onMarkReady,
     )
 
     ProviderRouterPanel()
@@ -438,15 +466,16 @@ private fun BlueprintScreen(
 
 @Composable
 private fun RecentBriefsPanel(
+    currentBrief: AgentTaskDraft,
     recentBriefs: List<AgentTaskDraft>,
     onSaveBrief: () -> Unit,
     onSelectBrief: (AgentTaskDraft) -> Unit,
     onClearDraft: () -> Unit,
 ) {
     FeatureCard(
-        label = "Recent briefs",
-        title = "Pocket memory for local builds.",
-        body = "Save a spark here, then restore it when the phone-side sandbox is ready for another pass.",
+        label = "Ready queue",
+        title = "Local briefs waiting on this phone.",
+        body = "Save phone-side work here, then mark complete briefs ready for the future sandbox preview.",
         color = ForgeBlue,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -481,7 +510,7 @@ private fun RecentBriefsPanel(
 
             if (recentBriefs.isEmpty()) {
                 Text(
-                    text = "No saved briefs yet.",
+                    text = "No queued briefs yet.",
                     color = ForgeMuted,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -491,6 +520,7 @@ private fun RecentBriefsPanel(
                     RecentBriefRow(
                         brief = brief,
                         index = index,
+                        isActive = brief.isSameBriefAs(currentBrief),
                         onClick = { onSelectBrief(brief) },
                     )
                 }
@@ -503,15 +533,18 @@ private fun RecentBriefsPanel(
 private fun RecentBriefRow(
     brief: AgentTaskDraft,
     index: Int,
+    isActive: Boolean,
     onClick: () -> Unit,
 ) {
+    val queueStatus = remember(brief) { brief.readinessStatus() }
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
         shape = MaterialTheme.shapes.medium,
-        color = ForgePaper,
-        border = BorderStroke(2.dp, ForgeInk),
+        color = if (isActive) ForgeMint else ForgePaper,
+        border = BorderStroke(2.dp, if (isActive) ForgeTeal else ForgeInk),
     ) {
         Row(
             modifier = Modifier.padding(10.dp),
@@ -522,12 +555,12 @@ private fun RecentBriefRow(
                 modifier = Modifier
                     .size(34.dp)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(ForgeMint),
+                    .background(if (isActive) ForgeTeal else queueStatus.color.copy(alpha = 0.24f)),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = (index + 1).toString(),
-                    color = ForgeInk,
+                    color = if (isActive) ForgePaper else ForgeInk,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.ExtraBold,
                 )
@@ -542,7 +575,11 @@ private fun RecentBriefRow(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = brief.goal.ifBlank { "Restore this brief and sharpen the next sandbox run." },
+                    text = if (isActive) {
+                        "Active brief on this device."
+                    } else {
+                        brief.goal.ifBlank { "Restore this brief and sharpen the next sandbox run." }
+                    },
                     color = ForgeMuted,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -550,7 +587,15 @@ private fun RecentBriefRow(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            StatusChip(text = "Load", color = ForgeTeal)
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                StatusChip(text = queueStatus.label, color = queueStatus.color)
+                if (isActive) {
+                    StatusChip(text = "Active", color = ForgeTeal)
+                }
+            }
         }
     }
 }
@@ -671,10 +716,11 @@ private fun RunPlanPreview(
     repo: String,
     constraints: String,
     output: String,
+    markedReady: Boolean,
     onSaveAsBrief: () -> Unit,
+    onMarkReady: () -> Unit,
 ) {
     val clipboardManager = LocalClipboardManager.current
-    var manualReady by remember(title, goal, repo, constraints, output) { mutableStateOf(false) }
     var actionMessage by remember(title, goal, repo, constraints, output) { mutableStateOf("") }
     val runPlan = remember(title, goal, repo, constraints, output) {
         buildRunPlanPreview(
@@ -685,8 +731,12 @@ private fun RunPlanPreview(
             output = output,
         )
     }
-    val readinessLabel = if (manualReady && runPlan.missingDetails.isEmpty()) "Ready" else runPlan.readinessLabel
-    val readinessColor = if (manualReady && runPlan.missingDetails.isEmpty()) ForgeTeal else runPlan.readinessColor
+    val readiness = remember(runPlan, markedReady) {
+        readinessStatus(
+            missingDetails = runPlan.missingDetails,
+            markedReady = markedReady,
+        )
+    }
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -706,7 +756,7 @@ private fun RunPlanPreview(
                 Box(modifier = Modifier.weight(1f)) {
                     LabelText(text = "Run plan preview", dark = false)
                 }
-                StatusChip(text = readinessLabel, color = readinessColor)
+                StatusChip(text = readiness.label, color = readiness.color)
             }
             Text(
                 text = "Phone sandbox draft",
@@ -764,7 +814,7 @@ private fun RunPlanPreview(
                     text = "Copy plan",
                     enabled = true,
                     onClick = {
-                        clipboardManager.setText(AnnotatedString(buildRunPlanCopy(runPlan, readinessLabel)))
+                        clipboardManager.setText(AnnotatedString(buildRunPlanCopy(runPlan, readiness.label)))
                         actionMessage = "Plan copied. Preview only; no code ran."
                     },
                 )
@@ -774,15 +824,15 @@ private fun RunPlanPreview(
                     enabled = true,
                     onClick = {
                         onSaveAsBrief()
-                        actionMessage = "Saved to Recent briefs. Matching briefs update the existing row."
+                        actionMessage = "Saved to the local ready queue. Matching briefs update the existing row."
                     },
                 )
                 CompactPlanAction(
                     modifier = Modifier.weight(1f),
-                    text = if (readinessLabel == "Ready") "Ready" else "Mark ready",
+                    text = if (readiness.label == "Ready") "Ready" else "Mark ready",
                     enabled = runPlan.missingDetails.isEmpty(),
                     onClick = {
-                        manualReady = true
+                        onMarkReady()
                         actionMessage = "Marked ready for local sandbox planning."
                     },
                 )
@@ -934,20 +984,11 @@ private fun buildRunPlanPreview(
     val normalizedOutput = output.ifBlank { "Summary, validation notes, and next action." }
     val likelyFiles = inferLikelyFiles(normalizedGoal, normalizedOutput)
     val checks = inferLightweightChecks(normalizedConstraints)
-    val readinessLabel = when {
-        missingDetails.isNotEmpty() -> "Needs detail"
-        constraints.isBlank() -> "Draft"
-        else -> "Draft"
-    }
-    val readinessColor = if (missingDetails.isNotEmpty()) ForgeGold else ForgeBlue
-
     return RunPlanPreviewModel(
         target = normalizedRepo.takePreviewWords(maxWords = 4),
         likelyFiles = likelyFiles,
         checks = checks,
         result = "User summary",
-        readinessLabel = readinessLabel,
-        readinessColor = readinessColor,
         missingDetails = missingDetails,
         steps = listOf(
             RunPlanStep(
@@ -1746,6 +1787,12 @@ private data class AgentTaskDraft(
     val repo: String,
     val constraints: String,
     val output: String,
+    val markedReady: Boolean = false,
+)
+
+private data class BriefReadinessStatus(
+    val label: String,
+    val color: Color,
 )
 
 private data class RunPlanPreviewModel(
@@ -1753,8 +1800,6 @@ private data class RunPlanPreviewModel(
     val likelyFiles: String,
     val checks: String,
     val result: String,
-    val readinessLabel: String,
-    val readinessColor: Color,
     val missingDetails: List<String>,
     val steps: List<RunPlanStep>,
 )
@@ -1772,6 +1817,29 @@ private fun AgentTaskDraft.isSameBriefAs(other: AgentTaskDraft): Boolean {
         repo == other.repo &&
         constraints == other.constraints &&
         output == other.output
+}
+
+private fun AgentTaskDraft.readinessStatus(): BriefReadinessStatus {
+    return readinessStatus(
+        missingDetails = findMissingRunPlanDetails(
+            title = title,
+            goal = goal,
+            repo = repo,
+            output = output,
+        ),
+        markedReady = markedReady,
+    )
+}
+
+private fun readinessStatus(
+    missingDetails: List<String>,
+    markedReady: Boolean,
+): BriefReadinessStatus {
+    return when {
+        missingDetails.isNotEmpty() -> BriefReadinessStatus(label = "Needs detail", color = ForgeGold)
+        markedReady -> BriefReadinessStatus(label = "Ready", color = ForgeTeal)
+        else -> BriefReadinessStatus(label = "Draft", color = ForgeBlue)
+    }
 }
 
 private fun findMissingRunPlanDetails(
@@ -1855,6 +1923,7 @@ private const val PREF_TASK_GOAL = "task_goal"
 private const val PREF_TASK_REPO = "task_repo"
 private const val PREF_TASK_CONSTRAINTS = "task_constraints"
 private const val PREF_TASK_OUTPUT = "task_output"
+private const val PREF_TASK_MARKED_READY = "task_marked_ready"
 private const val PREF_RECENT_BRIEFS = "recent_briefs"
 private const val MAX_RECENT_BRIEFS = 5
 private const val JSON_TITLE = "title"
@@ -1862,6 +1931,7 @@ private const val JSON_GOAL = "goal"
 private const val JSON_REPO = "repo"
 private const val JSON_CONSTRAINTS = "constraints"
 private const val JSON_OUTPUT = "output"
+private const val JSON_MARKED_READY = "markedReady"
 
 private fun SharedPreferences.loadAgentTaskDraft(): AgentTaskDraft {
     return AgentTaskDraft(
@@ -1871,6 +1941,7 @@ private fun SharedPreferences.loadAgentTaskDraft(): AgentTaskDraft {
         constraints = getString(PREF_TASK_CONSTRAINTS, DefaultAgentTaskDraft.constraints)
             ?: DefaultAgentTaskDraft.constraints,
         output = getString(PREF_TASK_OUTPUT, DefaultAgentTaskDraft.output) ?: DefaultAgentTaskDraft.output,
+        markedReady = getBoolean(PREF_TASK_MARKED_READY, DefaultAgentTaskDraft.markedReady),
     )
 }
 
@@ -1881,6 +1952,7 @@ private fun SharedPreferences.saveAgentTaskDraft(draft: AgentTaskDraft) {
         .putString(PREF_TASK_REPO, draft.repo)
         .putString(PREF_TASK_CONSTRAINTS, draft.constraints)
         .putString(PREF_TASK_OUTPUT, draft.output)
+        .putBoolean(PREF_TASK_MARKED_READY, draft.markedReady)
         .apply()
 }
 
@@ -1899,6 +1971,7 @@ private fun SharedPreferences.loadRecentAgentBriefs(): List<AgentTaskDraft> {
                         repo = brief.optString(JSON_REPO),
                         constraints = brief.optString(JSON_CONSTRAINTS),
                         output = brief.optString(JSON_OUTPUT),
+                        markedReady = brief.optBoolean(JSON_MARKED_READY, false),
                     ),
                 )
             }
@@ -1917,7 +1990,8 @@ private fun SharedPreferences.saveRecentAgentBriefs(briefs: List<AgentTaskDraft>
                 .put(JSON_GOAL, brief.goal)
                 .put(JSON_REPO, brief.repo)
                 .put(JSON_CONSTRAINTS, brief.constraints)
-                .put(JSON_OUTPUT, brief.output),
+                .put(JSON_OUTPUT, brief.output)
+                .put(JSON_MARKED_READY, brief.markedReady),
         )
     }
 
