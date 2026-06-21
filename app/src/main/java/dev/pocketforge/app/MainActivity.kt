@@ -832,6 +832,9 @@ private fun RunPlanPreview(
                 PlanCell(modifier = Modifier.weight(1f), label = "Checks", value = runPlan.checks)
                 PlanCell(modifier = Modifier.weight(1f), label = "Result", value = runPlan.result)
             }
+
+            RunPlanDetailsSection(runPlan = runPlan)
+
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 CompactPlanAction(
                     modifier = Modifier.weight(1f),
@@ -878,6 +881,81 @@ private fun RunPlanPreview(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun RunPlanDetailsSection(runPlan: RunPlanPreviewModel) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = ForgePaper.copy(alpha = 0.08f),
+        border = BorderStroke(1.dp, ForgePaper.copy(alpha = 0.22f)),
+    ) {
+        Column(
+            modifier = Modifier.padding(11.dp),
+            verticalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Plan details",
+                        color = ForgePaper,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                    Text(
+                        text = "Files & checks before any sandbox run.",
+                        color = ForgePaper.copy(alpha = 0.66f),
+                        fontSize = 10.sp,
+                        lineHeight = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                StatusChip(text = "Inspect", color = ForgeGold)
+            }
+
+            RunPlanDetailRow(label = "Edit intent", value = runPlan.editIntent)
+            RunPlanDetailRow(label = "Likely files", value = runPlan.fileDetails.joinToString(separator = "\n"))
+            RunPlanDetailRow(label = "Validation checks", value = runPlan.validationChecks.joinToString(separator = "\n"))
+            RunPlanDetailRow(label = "Expected output", value = runPlan.outputIntent)
+            RunPlanDetailRow(
+                label = "Blocking details",
+                value = if (runPlan.missingDetails.isEmpty()) {
+                    "None. This brief can be marked ready for local sandbox planning."
+                } else {
+                    "Add ${runPlan.missingDetails.joinToString()}."
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun RunPlanDetailRow(
+    label: String,
+    value: String,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(
+            text = label,
+            color = ForgePaper.copy(alpha = 0.58f),
+            fontSize = 9.sp,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = value,
+            color = ForgePaper,
+            fontSize = 11.sp,
+            lineHeight = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }
 
@@ -1007,12 +1085,18 @@ private fun buildRunPlanPreview(
     val normalizedConstraints = constraints.ifBlank { "Use existing patterns and keep edits scoped." }
     val normalizedOutput = output.ifBlank { "Summary, validation notes, and next action." }
     val likelyFiles = inferLikelyFiles(normalizedGoal, normalizedOutput)
+    val fileDetails = inferFileDetails(normalizedGoal, normalizedOutput)
     val checks = inferLightweightChecks(normalizedConstraints)
+    val validationChecks = inferValidationChecks(normalizedConstraints)
     return RunPlanPreviewModel(
         target = normalizedRepo.takePreviewWords(maxWords = 4),
         likelyFiles = likelyFiles,
         checks = checks,
         result = "User summary",
+        editIntent = normalizedGoal.takePreviewWords(maxWords = 18),
+        fileDetails = fileDetails,
+        validationChecks = validationChecks,
+        outputIntent = normalizedOutput.takePreviewWords(maxWords = 18),
         missingDetails = missingDetails,
         steps = listOf(
             RunPlanStep(
@@ -1069,6 +1153,19 @@ private fun buildRunPlanCopy(
         appendLine("Checks: ${runPlan.checks}")
         appendLine("Result: ${runPlan.result}")
         appendLine("Missing detail: $missingDetails")
+        appendLine()
+        appendLine("Plan details:")
+        appendLine("Edit intent: ${runPlan.editIntent}")
+        appendLine("Files:")
+        runPlan.fileDetails.forEach { fileDetail ->
+            appendLine("- $fileDetail")
+        }
+        appendLine("Validation checks:")
+        runPlan.validationChecks.forEach { validationCheck ->
+            appendLine("- $validationCheck")
+        }
+        appendLine("Expected output: ${runPlan.outputIntent}")
+        appendLine("Blocking details: $missingDetails")
         appendLine()
         appendLine("Steps:")
         runPlan.steps.forEachIndexed { index, step ->
@@ -1824,6 +1921,10 @@ private data class RunPlanPreviewModel(
     val likelyFiles: String,
     val checks: String,
     val result: String,
+    val editIntent: String,
+    val fileDetails: List<String>,
+    val validationChecks: List<String>,
+    val outputIntent: String,
     val missingDetails: List<String>,
     val steps: List<RunPlanStep>,
 )
@@ -1901,6 +2002,42 @@ private fun inferLikelyFiles(goal: String, output: String): String {
     }
 }
 
+private fun inferFileDetails(goal: String, output: String): List<String> {
+    val searchableText = "$goal $output".lowercase()
+
+    return when {
+        searchableText.contains("compose") ||
+            searchableText.contains("ui") ||
+            searchableText.contains("screen") ||
+            searchableText.contains("tab") -> listOf(
+                "Start in app/src/main/java/dev/pocketforge/app/MainActivity.kt.",
+                "Follow existing Compose state, card, and preview helpers before adding new structure.",
+            )
+        searchableText.contains("apk") ||
+            searchableText.contains("ci") ||
+            searchableText.contains("workflow") ||
+            searchableText.contains("actions") -> listOf(
+                "Inspect .github/workflows and build.gradle.kts files.",
+                "Keep cloud CI optional; the phone sandbox remains the primary product direction.",
+            )
+        searchableText.contains("readme") ||
+            searchableText.contains("docs") ||
+            searchableText.contains("plan") -> listOf(
+                "Inspect README.md and plan.md before editing copy.",
+                "Keep wording local, on-device, and sandbox oriented.",
+            )
+        searchableText.contains("gradle") ||
+            searchableText.contains("dependency") -> listOf(
+                "Inspect Gradle catalog and module build files.",
+                "Avoid dependency changes unless the task clearly needs them.",
+            )
+        else -> listOf(
+            "Search the local repo for matching feature, UI, and helper names.",
+            "Open the smallest relevant file set before proposing edits.",
+        )
+    }
+}
+
 private fun inferLightweightChecks(constraints: String): String {
     val searchableText = constraints.lowercase()
 
@@ -1912,6 +2049,26 @@ private fun inferLightweightChecks(constraints: String): String {
         "Diff + static scan"
     } else {
         "Available local checks"
+    }
+}
+
+private fun inferValidationChecks(constraints: String): List<String> {
+    val searchableText = constraints.lowercase()
+
+    return if (
+        searchableText.contains("no local android") ||
+        searchableText.contains("no android builds") ||
+        searchableText.contains("no local builds")
+    ) {
+        listOf(
+            "Inspect source changes and run git diff --check.",
+            "Review status and diff only; leave Android or Gradle builds to the configured CI path.",
+        )
+    } else {
+        listOf(
+            "Run the safest available local static checks for the changed files.",
+            "Review status and diff before handing the plan back to the user.",
+        )
     }
 }
 
