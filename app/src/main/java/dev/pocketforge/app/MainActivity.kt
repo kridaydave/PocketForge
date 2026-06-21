@@ -80,9 +80,10 @@ private fun PocketForgeApp(
     onDraftChanged: (AgentTaskDraft) -> Unit = {},
     onRecentBriefsChanged: (List<AgentTaskDraft>) -> Unit = {},
 ) {
-    var selectedTab by remember { mutableStateOf(WorkbenchTab.Today) }
-    var selectedFilter by remember { mutableStateOf("Mobile") }
-    var selectedTheme by remember { mutableStateOf(ForgeGreen) }
+    var selectedTab by remember { mutableStateOf(WorkbenchTab.Chat) }
+    var selectedRepoIndex by remember { mutableStateOf(0) }
+    var selectedBranch by remember { mutableStateOf(MockRepos.first().branches.first()) }
+    var selectedFilePath by remember { mutableStateOf(MockFiles.first().path) }
     var taskTitle by remember { mutableStateOf(initialDraft.title) }
     var taskGoal by remember { mutableStateOf(initialDraft.goal) }
     var taskRepo by remember { mutableStateOf(initialDraft.repo) }
@@ -213,10 +214,23 @@ private fun PocketForgeApp(
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     when (selectedTab) {
-                        WorkbenchTab.Today -> TodayScreen()
-                        WorkbenchTab.Ideas -> IdeasScreen(
-                            selectedFilter = selectedFilter,
-                            onFilterSelected = { selectedFilter = it },
+                        WorkbenchTab.Chat -> AgentChatScreen(
+                            onOpenBrief = { selectedTab = WorkbenchTab.Build },
+                        )
+
+                        WorkbenchTab.Repos -> ReposScreen(
+                            selectedRepoIndex = selectedRepoIndex,
+                            selectedBranch = selectedBranch,
+                            onRepoSelected = { repoIndex ->
+                                selectedRepoIndex = repoIndex
+                                selectedBranch = MockRepos[repoIndex].branches.first()
+                            },
+                            onBranchSelected = { selectedBranch = it },
+                        )
+
+                        WorkbenchTab.Files -> FilesScreen(
+                            selectedFilePath = selectedFilePath,
+                            onFileSelected = { selectedFilePath = it },
                         )
 
                         WorkbenchTab.Build -> BlueprintScreen(
@@ -259,11 +273,8 @@ private fun PocketForgeApp(
                             onClearDraft = ::clearDraft,
                             onMarkReady = ::updateCurrentReadyState,
                         )
-                        WorkbenchTab.Ci -> PipelineScreen()
-                        WorkbenchTab.Ship -> ShipScreen(
-                            selectedTheme = selectedTheme,
-                            onThemeSelected = { selectedTheme = it },
-                        )
+
+                        WorkbenchTab.Settings -> SettingsScreen()
                     }
                 }
 
@@ -328,100 +339,540 @@ private fun LogoMark() {
 }
 
 @Composable
-private fun TodayScreen() {
-    HeroPanel(
-        title = "Code from your phone.",
-        body = "Turn a loose note into a local agent task you can inspect, edit, run, and iterate toward on-device.",
-        primaryAction = "New Forge",
-        secondaryAction = "Capture",
-    )
+private fun AgentChatScreen(onOpenBrief: () -> Unit) {
+    SectionTitleBlock(title = "Agent Chat", subtitle = "Preview local session")
 
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        MetricTile(
-            modifier = Modifier.weight(1f),
-            label = "Active build",
-            value = "68%",
-            detail = "Phase 1 UI branch is ready for Actions.",
-            color = ForgeMint,
-        )
-        MetricTile(
-            modifier = Modifier.weight(1f),
-            label = "Next decision",
-            value = "AI keys",
-            detail = "Add a legitimate provider router after UI.",
-            color = ForgePeach,
-        )
-    }
-
-    SectionHeader(title = "Forge queue", action = "View all")
-    QueueRow(
-        badge = "A",
-        title = "Creator workbench",
-        detail = "Today, Ideas, Build, CI, Ship",
-        state = "Now",
-        color = ForgeMint,
-    )
-    QueueRow(
-        badge = "B",
-        title = "AI provider router",
-        detail = "Local sandbox first, optional providers later",
-        state = "Next",
-        color = ForgeGold,
-    )
-}
-
-@Composable
-private fun IdeasScreen(
-    selectedFilter: String,
-    onFilterSelected: (String) -> Unit,
-) {
-    val filters = listOf("Mobile", "AI", "Utility", "Playful")
-
-    SectionTitleBlock(title = "Idea Forge", subtitle = "5 raw notes")
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = ForgeInk,
+        border = BorderStroke(2.dp, ForgePaper),
     ) {
-        filters.forEach { filter ->
-            FilterChip(
-                text = filter,
-                selected = filter == selectedFilter,
-                onClick = { onFilterSelected(filter) },
+        Column(
+            modifier = Modifier.padding(15.dp),
+            verticalArrangement = Arrangement.spacedBy(11.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    LabelText(text = "Phone sandbox", dark = false)
+                    Text(
+                        text = "Session preview",
+                        color = ForgePaper,
+                        fontSize = 25.sp,
+                        lineHeight = 26.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                }
+                StatusChip(text = "Mock", color = ForgeGold)
+            }
+            Text(
+                text = "Local-only transcript shape. Messages and tool rows are placeholders; no command has run.",
+                color = ForgePaper.copy(alpha = 0.72f),
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+
+            ChatMessageBubble(
+                speaker = "You",
+                body = "Make the app feel like I can inspect a repo and hand a scoped task to a phone-side agent.",
+                mine = true,
+            )
+            ChatMessageBubble(
+                speaker = "PocketForge",
+                body = "I can draft the local plan, map likely files, and wait for your review before any sandbox action.",
+                mine = false,
+            )
+            ToolActivityPanel()
+            ChatMessageBubble(
+                speaker = "PocketForge",
+                body = "Next handoff: convert this into a Build brief with repo, files, constraints, and checks.",
+                mine = false,
             )
         }
     }
 
     FeatureCard(
-        label = "Recommended route",
-        title = "Creator workbench for fast app plans",
-        body = "Useful on day one, expandable into AI workflows once provider keys are configured cleanly.",
+        label = "Task brief handoff",
+        title = "Promote chat into a Build brief.",
+        body = "The affordance is here early so the flow is visible: chat first, inspect context, then save a local task brief. It does not execute code.",
         color = ForgeGold,
     ) {
-        ScoreBars(values = listOf(0.88f, 0.74f, 0.66f))
+        Button(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = onOpenBrief,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = ForgeInk,
+                contentColor = ForgePaper,
+            ),
+            shape = MaterialTheme.shapes.medium,
+        ) {
+            Text(
+                text = "Open Build brief",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.ExtraBold,
+            )
+        }
     }
 
     QueueRow(
         badge = "1",
-        title = "PocketForge Studio",
-        detail = "Projects, notes, features, exports",
-        state = "88",
-        color = ForgeGold,
+        title = "Local memory",
+        detail = "Recent prompts stay on this device in Phase 1 preview.",
+        state = "Preview",
+        color = ForgeMint,
     )
     QueueRow(
         badge = "2",
-        title = "Build Tracker",
-        detail = "Milestones, CI status, release notes",
-        state = "81",
+        title = "Sandbox handoff",
+        detail = "Future runs require explicit review before execution.",
+        state = "Later",
+        color = ForgeSlate,
+    )
+}
+
+@Composable
+private fun ChatMessageBubble(
+    speaker: String,
+    body: String,
+    mine: Boolean,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(if (mine) 0.88f else 0.94f),
+            shape = MaterialTheme.shapes.medium,
+            color = if (mine) ForgeGold else ForgePaper.copy(alpha = 0.08f),
+            border = BorderStroke(1.dp, if (mine) ForgeGold else ForgePaper.copy(alpha = 0.22f)),
+        ) {
+            Column(
+                modifier = Modifier.padding(11.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = speaker,
+                    color = if (mine) ForgeInk else ForgePaper.copy(alpha = 0.58f),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+                Text(
+                    text = body,
+                    color = if (mine) ForgeInk else ForgePaper,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToolActivityPanel() {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = ForgePaper.copy(alpha = 0.08f),
+        border = BorderStroke(1.dp, ForgePaper.copy(alpha = 0.22f)),
+    ) {
+        Column(
+            modifier = Modifier.padding(11.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = "Tool activity placeholders",
+                color = ForgePaper,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.ExtraBold,
+            )
+            ToolActivityRow(step = "read repo map", detail = "Preview row only", color = ForgeMint)
+            ToolActivityRow(step = "inspect likely files", detail = "Waiting for Phase 2 file access", color = ForgeBlue)
+            ToolActivityRow(step = "prepare patch plan", detail = "No execution in Phase 1", color = ForgeGold)
+        }
+    }
+}
+
+@Composable
+private fun ToolActivityRow(
+    step: String,
+    detail: String,
+    color: Color,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(22.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(color),
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = step,
+                color = ForgePaper,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.ExtraBold,
+            )
+            Text(
+                text = detail,
+                color = ForgePaper.copy(alpha = 0.62f),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        StatusChip(text = "Idle", color = color)
+    }
+}
+
+@Composable
+private fun ReposScreen(
+    selectedRepoIndex: Int,
+    selectedBranch: String,
+    onRepoSelected: (Int) -> Unit,
+    onBranchSelected: (String) -> Unit,
+) {
+    val selectedRepo = MockRepos[selectedRepoIndex]
+
+    SectionTitleBlock(title = "Repos", subtitle = "Local project picker")
+
+    FeatureCard(
+        label = "Selected workspace",
+        title = selectedRepo.name,
+        body = selectedRepo.detail,
+        color = ForgeMint,
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            PlanCell(modifier = Modifier.weight(1f), label = "Branch", value = selectedBranch)
+            PlanCell(modifier = Modifier.weight(1f), label = "Path", value = selectedRepo.path)
+        }
+    }
+
+    SectionHeader(title = "On-device repos", action = "Mock data")
+    MockRepos.forEachIndexed { index, repo ->
+        RepoPickerRow(
+            repo = repo,
+            selected = index == selectedRepoIndex,
+            onClick = { onRepoSelected(index) },
+        )
+    }
+
+    RailCard(label = "Branch preview") {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            selectedRepo.branches.forEach { branch ->
+                FilterChip(
+                    text = branch,
+                    selected = branch == selectedBranch,
+                    onClick = { onBranchSelected(branch) },
+                )
+            }
+        }
+    }
+
+    QueueRow(
+        badge = "GH",
+        title = "GitHub mirror stays optional",
+        detail = "Phase 2 can add read-only sync; local sandbox remains the center.",
+        state = "Later",
+        color = ForgePeach,
+    )
+}
+
+@Composable
+private fun RepoPickerRow(
+    repo: MockRepo,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = MaterialTheme.shapes.medium,
+        color = if (selected) ForgeInk else ForgePaper,
+        border = BorderStroke(2.dp, if (selected) ForgeRust else ForgeInk),
+    ) {
+        Row(
+            modifier = Modifier.padding(11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(repo.color),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = repo.initials,
+                    color = ForgeInk,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = repo.name,
+                    color = if (selected) ForgePaper else ForgeInk,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = repo.path,
+                    color = if (selected) ForgePaper.copy(alpha = 0.68f) else ForgeMuted,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            StatusChip(text = repo.state, color = if (selected) ForgeGold else ForgeInk)
+        }
+    }
+}
+
+@Composable
+private fun FilesScreen(
+    selectedFilePath: String,
+    onFileSelected: (String) -> Unit,
+) {
+    val selectedFile = MockFiles.firstOrNull { it.path == selectedFilePath } ?: MockFiles.first()
+
+    SectionTitleBlock(title = "Files", subtitle = "Inspect code from phone")
+
+    FeatureCard(
+        label = "File browser",
+        title = "PocketForge / phase-1-ui",
+        body = "Mock local tree for Phase 1. The surface should feel ready for real read-only browsing in Phase 2.",
+        color = ForgeBlue,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            MockFiles.forEach { file ->
+                FileBrowserRow(
+                    file = file,
+                    selected = file.path == selectedFile.path,
+                    onClick = { onFileSelected(file.path) },
+                )
+            }
+        }
+    }
+
+    FilePreviewPanel(file = selectedFile)
+
+    QueueRow(
+        badge = "RO",
+        title = "Read-only first",
+        detail = "Phase 2 should browse files before editing or running anything.",
+        state = "Plan",
+        color = ForgeMint,
+    )
+}
+
+@Composable
+private fun FileBrowserRow(
+    file: MockFile,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = MaterialTheme.shapes.medium,
+        color = if (selected) ForgeInk else ForgePaper,
+        border = BorderStroke(1.dp, if (selected) ForgeRust else ForgeInk.copy(alpha = 0.28f)),
+    ) {
+        Row(
+            modifier = Modifier.padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            Text(
+                text = file.kind,
+                color = if (selected) ForgeGold else ForgeRust,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.ExtraBold,
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = file.name,
+                    color = if (selected) ForgePaper else ForgeInk,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = file.path,
+                    color = if (selected) ForgePaper.copy(alpha = 0.62f) else ForgeMuted,
+                    fontSize = 9.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            StatusChip(text = file.mode, color = if (selected) ForgeGold else ForgeInk)
+        }
+    }
+}
+
+@Composable
+private fun FilePreviewPanel(file: MockFile) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = ForgeInk,
+        border = BorderStroke(2.dp, ForgePaper),
+    ) {
+        Column(
+            modifier = Modifier.padding(15.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    LabelText(text = "Preview viewer", dark = false)
+                    Text(
+                        text = file.name,
+                        color = ForgePaper,
+                        fontSize = 21.sp,
+                        lineHeight = 23.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                StatusChip(text = "Read", color = ForgeGold)
+            }
+            Text(
+                text = file.path,
+                color = ForgePaper.copy(alpha = 0.58f),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium,
+                color = ForgeGraphite,
+                border = BorderStroke(1.dp, ForgePaper.copy(alpha = 0.16f)),
+            ) {
+                Text(
+                    modifier = Modifier.padding(12.dp),
+                    text = file.preview,
+                    color = ForgePaper,
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+            Text(
+                text = "Preview only. Editing, saving, and command execution are intentionally absent in Phase 1.",
+                color = ForgePaper.copy(alpha = 0.64f),
+                fontSize = 10.sp,
+                lineHeight = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsScreen() {
+    SectionTitleBlock(title = "Settings", subtitle = "Preview-only controls")
+
+    FeatureCard(
+        label = "Local safety",
+        title = "No secrets are stored yet.",
+        body = "These sections reserve the shape for Phase 2 without adding credential persistence or real integrations.",
+        color = ForgePeach,
+    ) {
+        ScoreBars(values = listOf(0.25f, 0.5f, 0.75f))
+    }
+
+    SettingsSection(
+        label = "GitHub token",
+        title = "Read-only repo access",
+        body = "Future optional integration for listing repos and opening files. Phase 1 shows the slot only.",
+        status = "Not stored",
         color = ForgeBlue,
     )
-    QueueRow(
-        badge = "3",
-        title = "Provider Console",
-        detail = "Budgets, limits, task routing",
-        state = "79",
-        color = ForgeBerry,
+    SettingsSection(
+        label = "Model provider key",
+        title = "Bring your own provider",
+        body = "Reserved for legitimate API keys or on-device model routing. No key entry or storage is active.",
+        status = "Preview",
+        color = ForgeGold,
+    )
+    SettingsSection(
+        label = "Sandbox safety",
+        title = "Ask before write or run",
+        body = "Future agent actions should require an explicit checkpoint before file edits, installs, or commands.",
+        status = "Required",
+        color = ForgeMint,
     )
 
-    DarkActionButton(text = "Generate template variants")
+    RailCard(label = "Phase boundary") {
+        Text(
+            text = "Phase 1 is UI skeleton and inspectability. Secure auth, repo browsing, file reads, edits, and execution belong to later phases.",
+            color = ForgePaper,
+            fontSize = 12.sp,
+            lineHeight = 17.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+@Composable
+private fun SettingsSection(
+    label: String,
+    title: String,
+    body: String,
+    status: String,
+    color: Color,
+) {
+    FeatureCard(
+        label = label,
+        title = title,
+        body = body,
+        color = color,
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.medium,
+            color = ForgePaper.copy(alpha = 0.74f),
+            border = BorderStroke(1.dp, ForgeInk.copy(alpha = 0.24f)),
+        ) {
+            Row(
+                modifier = Modifier.padding(11.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
+            ) {
+                Text(
+                    modifier = Modifier.weight(1f),
+                    text = "Preview placeholder",
+                    color = ForgeInk,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+                StatusChip(text = status, color = ForgeInk)
+            }
+        }
+    }
 }
 
 @Composable
@@ -1331,212 +1782,6 @@ private fun buildRunPlanCopy(
 }
 
 @Composable
-private fun PipelineScreen() {
-    FeatureCard(
-        label = "Optional cloud build",
-        title = "APK artifact runs in GitHub Actions.",
-        body = "Cloud CI is a release helper while the core coding workflow moves toward local phone-side sandboxes.",
-        color = ForgePeach,
-    ) {
-        LinearProgressIndicator(
-            progress = { 0.68f },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(12.dp)
-                .clip(CircleShape),
-            color = ForgeGreen,
-            trackColor = ForgePaper,
-        )
-    }
-
-    BuildStep(title = "Repository scaffold", detail = "Compose skeleton committed", state = "Done", done = true)
-    BuildStep(title = "GitHub workflow", detail = "SDK 36 is pinned in CI", state = "Done", done = true)
-    BuildStep(title = "UI mockup approval", detail = "Bento Forge OS applied to app shell", state = "Live", live = true)
-    BuildStep(title = "Install on phone", detail = "Download app-debug.apk artifact", state = "Next")
-
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        MetricTile(
-            modifier = Modifier.weight(1f),
-            label = "Last run",
-            value = "Pass",
-            detail = "Phase 0 APK uploaded.",
-            color = ForgeBlue,
-        )
-        MetricTile(
-            modifier = Modifier.weight(1f),
-            label = "Branch",
-            value = "phase-1",
-            detail = "Feature work stays isolated.",
-            color = ForgeBerry,
-        )
-    }
-}
-
-@Composable
-private fun ShipScreen(
-    selectedTheme: Color,
-    onThemeSelected: (Color) -> Unit,
-) {
-    FeatureCard(
-        label = "Release pocket",
-        title = "Your debug APK will appear here.",
-        body = "Artifact metadata comes from GitHub Actions. For now this screen shows the release handoff shape.",
-        color = selectedTheme,
-    ) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.medium,
-            color = ForgePaper,
-            border = BorderStroke(2.dp, ForgeInk),
-        ) {
-            Row(
-                modifier = Modifier.padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "pocketforge-debug.apk",
-                        color = ForgeInk,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                    )
-                    Text(
-                        text = "Artifact from GitHub Actions",
-                        color = ForgeMuted,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-                StatusChip(text = "Get", color = ForgeInk)
-            }
-        }
-    }
-
-    SectionHeader(title = "Brand skin", action = "Save")
-    Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-        listOf(ForgeGreen, ForgeRust, ForgeTeal, ForgeGold, ForgeBerry).forEach { color ->
-            ThemeSwatch(
-                color = color,
-                selected = color == selectedTheme,
-                onClick = { onThemeSelected(color) },
-            )
-        }
-    }
-
-    QueueRow(
-        badge = "QR",
-        title = "Phone install card",
-        detail = "Share download instructions cleanly",
-        state = "Share",
-        color = ForgeMint,
-    )
-    QueueRow(
-        badge = "RN",
-        title = "Release notes",
-        detail = "Generated from milestone changes",
-        state = "Draft",
-        color = ForgeGold,
-    )
-    DarkActionButton(text = "Create release checklist")
-}
-
-@Composable
-private fun HeroPanel(
-    title: String,
-    body: String,
-    primaryAction: String,
-    secondaryAction: String,
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        color = ForgeGreen,
-        border = BorderStroke(2.dp, ForgeInk),
-    ) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(
-                text = title,
-                color = ForgePaper,
-                fontSize = 30.sp,
-                lineHeight = 31.sp,
-                fontWeight = FontWeight.ExtraBold,
-            )
-            Text(
-                text = body,
-                color = ForgePaper.copy(alpha = 0.78f),
-                fontSize = 13.sp,
-                lineHeight = 18.sp,
-                fontWeight = FontWeight.Medium,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = {},
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = ForgeGold,
-                        contentColor = ForgeInk,
-                    ),
-                    shape = MaterialTheme.shapes.medium,
-                ) {
-                    Text(primaryAction, fontWeight = FontWeight.ExtraBold)
-                }
-                Button(
-                    onClick = {},
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = ForgePaper,
-                        contentColor = ForgeInk,
-                    ),
-                    shape = MaterialTheme.shapes.medium,
-                ) {
-                    Text(secondaryAction, fontWeight = FontWeight.ExtraBold)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun MetricTile(
-    modifier: Modifier = Modifier,
-    label: String,
-    value: String,
-    detail: String,
-    color: Color,
-) {
-    Surface(
-        modifier = modifier,
-        shape = MaterialTheme.shapes.medium,
-        color = color,
-        border = BorderStroke(2.dp, ForgeInk),
-    ) {
-        Column(
-            modifier = Modifier.padding(13.dp),
-            verticalArrangement = Arrangement.spacedBy(7.dp),
-        ) {
-            LabelText(text = label, dark = true)
-            Text(
-                text = value,
-                color = ForgeInk,
-                fontSize = 23.sp,
-                fontWeight = FontWeight.ExtraBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = detail,
-                color = ForgeInk.copy(alpha = 0.68f),
-                fontSize = 10.sp,
-                lineHeight = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
-    }
-}
-
-@Composable
 private fun QueueRow(
     badge: String,
     title: String,
@@ -1794,67 +2039,6 @@ private fun ArrowLine() {
 }
 
 @Composable
-private fun BuildStep(
-    title: String,
-    detail: String,
-    state: String,
-    done: Boolean = false,
-    live: Boolean = false,
-) {
-    val color = when {
-        done -> ForgeTeal
-        live -> ForgeGold
-        else -> ForgePaper
-    }
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Box(
-            modifier = Modifier
-                .size(27.dp)
-                .clip(CircleShape)
-                .background(color),
-        )
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                color = ForgeInk,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.ExtraBold,
-            )
-            Text(
-                text = detail,
-                color = ForgeMuted,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
-        StatusChip(text = state, color = ForgeInk)
-    }
-}
-
-@Composable
-private fun ThemeSwatch(
-    color: Color,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    Surface(
-        modifier = Modifier
-            .size(48.dp)
-            .clickable(onClick = onClick),
-        shape = MaterialTheme.shapes.medium,
-        color = color,
-        border = BorderStroke(if (selected) 4.dp else 2.dp, if (selected) ForgePaper else ForgeInk),
-    ) {}
-}
-
-@Composable
 private fun SectionHeader(title: String, action: String) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -1913,25 +2097,6 @@ private fun FilterChip(
             text = text,
             color = if (selected) ForgePaper else ForgeInk,
             fontSize = 11.sp,
-            fontWeight = FontWeight.ExtraBold,
-        )
-    }
-}
-
-@Composable
-private fun DarkActionButton(text: String) {
-    Button(
-        modifier = Modifier.fillMaxWidth(),
-        onClick = {},
-        colors = ButtonDefaults.buttonColors(
-            containerColor = ForgeInk,
-            contentColor = ForgePaper,
-        ),
-        shape = MaterialTheme.shapes.medium,
-    ) {
-        Text(
-            text = text,
-            fontSize = 13.sp,
             fontWeight = FontWeight.ExtraBold,
         )
     }
@@ -2050,11 +2215,11 @@ private enum class WorkbenchTab(
     val label: String,
     val subtitle: String,
 ) {
-    Today("Today", "Workbench"),
-    Ideas("Ideas", "Idea Forge"),
+    Chat("Chat", "Local Session"),
+    Repos("Repos", "Project Picker"),
+    Files("Files", "Code Viewer"),
     Build("Build", "Blueprint"),
-    Ci("CI", "Pipeline"),
-    Ship("Ship", "Release Pocket"),
+    Settings("Settings", "Sandbox Setup"),
 }
 
 private data class AgentTaskDraft(
@@ -2089,6 +2254,24 @@ private data class RunPlanStep(
     val detail: String,
     val state: String,
     val color: Color,
+)
+
+private data class MockRepo(
+    val name: String,
+    val path: String,
+    val detail: String,
+    val branches: List<String>,
+    val state: String,
+    val initials: String,
+    val color: Color,
+)
+
+private data class MockFile(
+    val name: String,
+    val path: String,
+    val kind: String,
+    val mode: String,
+    val preview: String,
 )
 
 private fun AgentTaskDraft.isSameBriefAs(other: AgentTaskDraft): Boolean {
@@ -2336,18 +2519,106 @@ private fun SharedPreferences.saveRecentAgentBriefs(briefs: List<AgentTaskDraft>
         .apply()
 }
 
-private val ForgeInk = Color(0xFF111214)
-private val ForgeCanvas = Color(0xFFF3F0E8)
-private val ForgePaper = Color(0xFFFFF9EA)
-private val ForgeMuted = Color(0xFF6F6A60)
+private val ForgeInk = Color(0xFF111412)
+private val ForgeCanvas = Color(0xFFE9E3D6)
+private val ForgePaper = Color(0xFFFBF8EF)
+private val ForgeMuted = Color(0xFF616963)
 private val ForgeGreen = Color(0xFF16352D)
+private val ForgeGraphite = Color(0xFF171714)
+private val ForgeSlate = Color(0xFF60727A)
 private val ForgeTeal = Color(0xFF1F8A66)
 private val ForgeMint = Color(0xFFD8F1E8)
-private val ForgeRust = Color(0xFFC76B3E)
+private val ForgeRust = Color(0xFFA64B2A)
 private val ForgePeach = Color(0xFFF8DECF)
-private val ForgeGold = Color(0xFFE2A336)
+private val ForgeGold = Color(0xFFD8B35D)
 private val ForgeBlue = Color(0xFFDFE8FF)
-private val ForgeBerry = Color(0xFFBF4B7C)
+
+private val MockRepos = listOf(
+    MockRepo(
+        name = "PocketForge",
+        path = "~/code/PocketForge",
+        detail = "Android app shell for a personal local coding agent. Branch state is mocked for the phone UI skeleton.",
+        branches = listOf("phase-1-ui", "main", "local-sandbox-spike"),
+        state = "Selected",
+        initials = "PF",
+        color = ForgeGold,
+    ),
+    MockRepo(
+        name = "Epoch Notes",
+        path = "~/code/epoch-notes",
+        detail = "Private markdown workspace used to test file browsing and brief handoffs from a phone.",
+        branches = listOf("main", "drafts"),
+        state = "Local",
+        initials = "EN",
+        color = ForgeSlate,
+    ),
+    MockRepo(
+        name = "Tiny Tools",
+        path = "~/code/tiny-tools",
+        detail = "Small scripts and utilities, useful for showing a dense but readable repo picker.",
+        branches = listOf("main", "mobile-inspect"),
+        state = "Local",
+        initials = "TT",
+        color = ForgeMint,
+    ),
+)
+
+private val MockFiles = listOf(
+    MockFile(
+        name = "MainActivity.kt",
+        path = "app/src/main/java/dev/pocketforge/app/MainActivity.kt",
+        kind = "KT",
+        mode = "Code",
+        preview = """
+            @Composable
+            private fun PocketForgeApp() {
+                // Phone-first shell:
+                // Chat -> Repos -> Files -> Build -> Settings
+                // Preview only; no command execution in Phase 1.
+            }
+        """.trimIndent(),
+    ),
+    MockFile(
+        name = "README.md",
+        path = "README.md",
+        kind = "MD",
+        mode = "Docs",
+        preview = """
+            # PocketForge
+
+            Personal-use Android coding agent shell.
+
+            Phase 1 makes the app feel real with local-first mock flows.
+            Phase 2 can add read-only GitHub and file browsing.
+        """.trimIndent(),
+    ),
+    MockFile(
+        name = "build-apk.yml",
+        path = ".github/workflows/build-apk.yml",
+        kind = "YML",
+        mode = "CI",
+        preview = """
+            name: Build debug APK
+
+            on:
+              workflow_dispatch:
+
+            # Optional artifact path; local phone sandbox remains the product center.
+        """.trimIndent(),
+    ),
+    MockFile(
+        name = "plan.md",
+        path = "plan.md",
+        kind = "MD",
+        mode = "Plan",
+        preview = """
+            ## Phase 1
+
+            Make the mock app feel like the real product:
+            chat, repo picker, file browser, brief handoff, and settings.
+        """.trimIndent(),
+    ),
+)
 
 @Preview(showBackground = true, widthDp = 360, heightDp = 780)
 @Composable
