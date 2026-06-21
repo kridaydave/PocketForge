@@ -201,14 +201,12 @@ private fun PocketForgeApp(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .statusBarsPadding()
                     .navigationBarsPadding(),
             ) {
-                WorkbenchTopBar(selectedTab = selectedTab)
-
                 Column(
                     modifier = Modifier
                         .weight(1f)
+                        .statusBarsPadding()
                         .verticalScroll(rememberScrollState())
                         .padding(horizontal = 18.dp, vertical = 18.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -284,57 +282,6 @@ private fun PocketForgeApp(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun WorkbenchTopBar(selectedTab: WorkbenchTab) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(ForgePaper)
-            .padding(horizontal = 18.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        LogoMark()
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "PocketForge",
-                color = ForgeInk,
-                fontSize = 21.sp,
-                fontWeight = FontWeight.ExtraBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = selectedTab.subtitle,
-                color = ForgeMuted,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        StatusChip(text = "Phase 1", color = ForgeRust)
-    }
-}
-
-@Composable
-private fun LogoMark() {
-    Box(
-        modifier = Modifier
-            .size(42.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(ForgeGreen),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = "PF",
-            color = ForgePaper,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.ExtraBold,
-        )
     }
 }
 
@@ -2213,13 +2160,12 @@ private fun PocketForgeTheme(content: @Composable () -> Unit) {
 
 private enum class WorkbenchTab(
     val label: String,
-    val subtitle: String,
 ) {
-    Chat("Chat", "Local Session"),
-    Repos("Repos", "Project Picker"),
-    Files("Files", "Code Viewer"),
-    Build("Build", "Blueprint"),
-    Settings("Settings", "Sandbox Setup"),
+    Chat("Chat"),
+    Repos("Repos"),
+    Files("Files"),
+    Build("Build"),
+    Settings("Settings"),
 }
 
 private data class AgentTaskDraft(
