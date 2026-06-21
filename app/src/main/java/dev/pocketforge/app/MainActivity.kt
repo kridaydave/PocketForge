@@ -27,6 +27,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -88,6 +90,9 @@ private fun PocketForgeApp(
     var taskOutput by remember { mutableStateOf(initialDraft.output) }
     var taskMarkedReady by remember { mutableStateOf(initialDraft.markedReady) }
     var recentBriefs by remember { mutableStateOf(initialRecentBriefs) }
+    var loadedQueuedBrief by remember {
+        mutableStateOf(initialRecentBriefs.firstOrNull { it.isSameBriefAs(initialDraft) })
+    }
 
     fun currentDraft(
         title: String = taskTitle,
@@ -111,27 +116,44 @@ private fun PocketForgeApp(
         onDraftChanged(draft)
     }
 
-    fun restoreDraft(draft: AgentTaskDraft) {
+    fun restoreDraft(
+        draft: AgentTaskDraft,
+        queuedBrief: AgentTaskDraft? = draft,
+    ) {
         taskTitle = draft.title
         taskGoal = draft.goal
         taskRepo = draft.repo
         taskConstraints = draft.constraints
         taskOutput = draft.output
         taskMarkedReady = draft.markedReady
+        loadedQueuedBrief = queuedBrief
         saveDraft(draft)
     }
 
     fun saveCurrentBrief() {
         val draft = currentDraft()
-        val updatedBriefs = (listOf(draft) + recentBriefs.filterNot { it.isSameBriefAs(draft) })
-            .take(MAX_RECENT_BRIEFS)
+        val loadedBrief = loadedQueuedBrief
+        val loadedIndex = loadedBrief?.let { loaded ->
+            recentBriefs.indexOfFirst { it.isSameBriefAs(loaded) }
+        } ?: -1
+        val updatedBriefs = if (loadedIndex >= 0) {
+            recentBriefs.mapIndexed { index, brief ->
+                if (index == loadedIndex) draft else brief
+            }.filterIndexed { index, brief ->
+                index == loadedIndex || !brief.isSameBriefAs(draft)
+            }.take(MAX_RECENT_BRIEFS)
+        } else {
+            (listOf(draft) + recentBriefs.filterNot { it.isSameBriefAs(draft) })
+                .take(MAX_RECENT_BRIEFS)
+        }
         recentBriefs = updatedBriefs
+        loadedQueuedBrief = draft
         onRecentBriefsChanged(updatedBriefs)
         saveDraft(draft)
     }
 
     fun clearDraft() {
-        restoreDraft(EmptyAgentTaskDraft)
+        restoreDraft(EmptyAgentTaskDraft, queuedBrief = null)
     }
 
     fun deleteRecentBrief(briefToDelete: AgentTaskDraft) {
@@ -139,7 +161,8 @@ private fun PocketForgeApp(
         recentBriefs = updatedBriefs
         onRecentBriefsChanged(updatedBriefs)
 
-        if (briefToDelete.isSameBriefAs(currentDraft())) {
+        val isLoadedBrief = loadedQueuedBrief?.isSameBriefAs(briefToDelete) == true
+        if (isLoadedBrief || briefToDelete.isSameBriefAs(currentDraft())) {
             clearDraft()
         }
     }
@@ -149,10 +172,23 @@ private fun PocketForgeApp(
         taskMarkedReady = true
         saveDraft(readyDraft)
 
-        val updatedBriefs = recentBriefs.map { brief ->
-            if (brief.isSameBriefAs(readyDraft)) readyDraft else brief
+        val loadedBrief = loadedQueuedBrief
+        val loadedIndex = loadedBrief?.let { loaded ->
+            recentBriefs.indexOfFirst { it.isSameBriefAs(loaded) }
+        } ?: -1
+        val updatedBriefs = if (loadedIndex >= 0) {
+            recentBriefs.mapIndexed { index, brief ->
+                if (index == loadedIndex) readyDraft else brief
+            }.filterIndexed { index, brief ->
+                index == loadedIndex || !brief.isSameBriefAs(readyDraft)
+            }
+        } else {
+            recentBriefs.map { brief ->
+                if (brief.isSameBriefAs(readyDraft)) readyDraft else brief
+            }
         }
         recentBriefs = updatedBriefs
+        loadedQueuedBrief = readyDraft
         onRecentBriefsChanged(updatedBriefs)
     }
 
@@ -215,6 +251,7 @@ private fun PocketForgeApp(
                                 saveDraft(currentDraft(output = it, markedReady = false))
                             },
                             currentBrief = currentDraft(),
+                            loadedQueuedBrief = loadedQueuedBrief,
                             recentBriefs = recentBriefs,
                             onSaveBrief = ::saveCurrentBrief,
                             onSelectRecentBrief = ::restoreDraft,
@@ -400,6 +437,7 @@ private fun BlueprintScreen(
     taskOutput: String,
     onTaskOutputChange: (String) -> Unit,
     currentBrief: AgentTaskDraft,
+    loadedQueuedBrief: AgentTaskDraft?,
     recentBriefs: List<AgentTaskDraft>,
     onSaveBrief: () -> Unit,
     onSelectRecentBrief: (AgentTaskDraft) -> Unit,
@@ -413,6 +451,7 @@ private fun BlueprintScreen(
 
     RecentBriefsPanel(
         currentBrief = currentBrief,
+        loadedQueuedBrief = loadedQueuedBrief,
         recentBriefs = recentBriefs,
         onSaveBrief = onSaveBrief,
         onSelectBrief = onSelectRecentBrief,
@@ -480,6 +519,7 @@ private fun BlueprintScreen(
 @Composable
 private fun RecentBriefsPanel(
     currentBrief: AgentTaskDraft,
+    loadedQueuedBrief: AgentTaskDraft?,
     recentBriefs: List<AgentTaskDraft>,
     onSaveBrief: () -> Unit,
     onSelectBrief: (AgentTaskDraft) -> Unit,
@@ -534,7 +574,8 @@ private fun RecentBriefsPanel(
                     RecentBriefRow(
                         brief = brief,
                         index = index,
-                        isActive = brief.isSameBriefAs(currentBrief),
+                        isActive = loadedQueuedBrief?.isSameBriefAs(brief)
+                            ?: brief.isSameBriefAs(currentBrief),
                         onClick = { onSelectBrief(brief) },
                         onDelete = { onDeleteBrief(brief) },
                     )
@@ -553,6 +594,19 @@ private fun RecentBriefRow(
     onDelete: () -> Unit,
 ) {
     val queueStatus = remember(brief) { brief.readinessStatus() }
+    val missingDetails = remember(brief) {
+        findMissingRunPlanDetails(
+            title = brief.title,
+            goal = brief.goal,
+            repo = brief.repo,
+            output = brief.output,
+        )
+    }
+    val rowDetail = when {
+        missingDetails.isNotEmpty() -> "Needs: ${missingDetails.joinToString()}."
+        isActive -> "Active brief on this device."
+        else -> brief.goal.ifBlank { "Restore this brief and sharpen the next sandbox run." }
+    }
 
     Surface(
         modifier = Modifier
@@ -591,15 +645,11 @@ private fun RecentBriefRow(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = if (isActive) {
-                        "Active brief on this device."
-                    } else {
-                        brief.goal.ifBlank { "Restore this brief and sharpen the next sandbox run." }
-                    },
+                    text = rowDetail,
                     color = ForgeMuted,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -746,6 +796,9 @@ private fun RunPlanPreview(
 ) {
     val clipboardManager = LocalClipboardManager.current
     var actionMessage by remember(title, goal, repo, constraints, output) { mutableStateOf("") }
+    var inspectedPlan by remember(title, goal, repo, constraints, output) { mutableStateOf(false) }
+    var reviewedFiles by remember(title, goal, repo, constraints, output) { mutableStateOf(false) }
+    var reviewedChecks by remember(title, goal, repo, constraints, output) { mutableStateOf(false) }
     val runPlan = remember(title, goal, repo, constraints, output) {
         buildRunPlanPreview(
             title = title,
@@ -761,6 +814,9 @@ private fun RunPlanPreview(
             markedReady = markedReady,
         )
     }
+    val checklistComplete = inspectedPlan && reviewedFiles && reviewedChecks
+    val canMarkReady = runPlan.missingDetails.isEmpty() && checklistComplete
+    val canUseReadyAction = markedReady || canMarkReady
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -834,6 +890,14 @@ private fun RunPlanPreview(
             }
 
             RunPlanDetailsSection(runPlan = runPlan)
+            RunPlanChecklistSection(
+                inspectedPlan = inspectedPlan,
+                onInspectedPlanChange = { inspectedPlan = it },
+                reviewedFiles = reviewedFiles,
+                onReviewedFilesChange = { reviewedFiles = it },
+                reviewedChecks = reviewedChecks,
+                onReviewedChecksChange = { reviewedChecks = it },
+            )
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 CompactPlanAction(
@@ -857,11 +921,20 @@ private fun RunPlanPreview(
                 CompactPlanAction(
                     modifier = Modifier.weight(1f),
                     text = if (readiness.label == "Ready") "Ready" else "Mark ready",
-                    enabled = runPlan.missingDetails.isEmpty(),
+                    enabled = canUseReadyAction,
                     onClick = {
                         onMarkReady()
                         actionMessage = "Marked ready for local sandbox planning."
                     },
+                )
+            }
+            if (runPlan.missingDetails.isEmpty() && !checklistComplete) {
+                Text(
+                    text = "Tick the preview checks after you inspect the plan. This does not run code.",
+                    color = ForgePaper.copy(alpha = 0.64f),
+                    fontSize = 10.sp,
+                    lineHeight = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
             if (actionMessage.isNotBlank()) {
@@ -881,6 +954,88 @@ private fun RunPlanPreview(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun RunPlanChecklistSection(
+    inspectedPlan: Boolean,
+    onInspectedPlanChange: (Boolean) -> Unit,
+    reviewedFiles: Boolean,
+    onReviewedFilesChange: (Boolean) -> Unit,
+    reviewedChecks: Boolean,
+    onReviewedChecksChange: (Boolean) -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = ForgePaper.copy(alpha = 0.08f),
+        border = BorderStroke(1.dp, ForgePaper.copy(alpha = 0.22f)),
+    ) {
+        Column(
+            modifier = Modifier.padding(11.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = "Ready checklist",
+                color = ForgePaper,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.ExtraBold,
+            )
+            Text(
+                text = "Preview-only inspection before marking the brief ready.",
+                color = ForgePaper.copy(alpha = 0.66f),
+                fontSize = 10.sp,
+                lineHeight = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            RunPlanChecklistRow(
+                checked = inspectedPlan,
+                onCheckedChange = onInspectedPlanChange,
+                label = "Inspect plan",
+            )
+            RunPlanChecklistRow(
+                checked = reviewedFiles,
+                onCheckedChange = onReviewedFilesChange,
+                label = "Review files",
+            )
+            RunPlanChecklistRow(
+                checked = reviewedChecks,
+                onCheckedChange = onReviewedChecksChange,
+                label = "Review checks",
+            )
+        }
+    }
+}
+
+@Composable
+private fun RunPlanChecklistRow(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    label: String,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Checkbox(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = CheckboxDefaults.colors(
+                checkedColor = ForgeTeal,
+                uncheckedColor = ForgePaper.copy(alpha = 0.58f),
+                checkmarkColor = ForgeInk,
+            ),
+        )
+        Text(
+            text = label,
+            color = ForgePaper,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.ExtraBold,
+        )
     }
 }
 
