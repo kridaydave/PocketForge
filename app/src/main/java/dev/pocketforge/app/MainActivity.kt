@@ -25,8 +25,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.LinearProgressIndicator
@@ -203,13 +201,14 @@ private fun PocketForgeApp(
                     .fillMaxSize()
                     .navigationBarsPadding(),
             ) {
+                SessionTopBar(selectedTab = selectedTab)
+
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .statusBarsPadding()
                         .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 18.dp, vertical = 18.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                        .padding(horizontal = 18.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(18.dp),
                 ) {
                     when (selectedTab) {
                         WorkbenchTab.Chat -> AgentChatScreen(
@@ -287,99 +286,186 @@ private fun PocketForgeApp(
 
 @Composable
 private fun AgentChatScreen(onOpenBrief: () -> Unit) {
-    SectionTitleBlock(title = "Agent Chat", subtitle = "Preview local session")
+    ProjectContextStrip()
 
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            text = "What should we change locally?",
+            color = ForgeInk,
+            fontSize = 34.sp,
+            lineHeight = 36.sp,
+            fontWeight = FontWeight.Medium,
+        )
+        Text(
+            modifier = Modifier.fillMaxWidth(0.9f),
+            text = "PocketForge is a phone-side coding agent preview: inspect context, shape a plan, and keep every run gated.",
+            color = ForgeMuted,
+            fontSize = 13.sp,
+            lineHeight = 19.sp,
+            fontWeight = FontWeight.Medium,
+        )
+    }
+
+    ChatMessageBubble(
+        speaker = "You",
+        body = "Make the app feel like I can inspect a repo and hand a scoped task to a phone-side agent.",
+        mine = true,
+    )
+    ChatMessageBubble(
+        speaker = "PocketForge",
+        body = "I can turn that into a local plan, map likely files, and wait for your review before any sandbox action.",
+        mine = false,
+    )
+    ToolActivityPanel()
+    ChatMessageBubble(
+        speaker = "PocketForge",
+        body = "Next handoff: promote this chat into a Build brief with repo, constraints, checks, and a clear stop point.",
+        mine = false,
+    )
+
+    ChatComposer(onOpenBrief = onOpenBrief)
+}
+
+@Composable
+private fun SessionTopBar(selectedTab: WorkbenchTab) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(horizontal = 18.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "PocketForge",
+                color = ForgeInk,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = "Local sandbox preview",
+                color = ForgeMuted,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+            )
+        }
+        StatusChip(text = selectedTab.label, color = ForgeRust)
+    }
+}
+
+@Composable
+private fun ProjectContextStrip() {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        color = ForgeInk,
-        border = BorderStroke(2.dp, ForgePaper),
+        shape = CircleShape,
+        color = ForgePaper.copy(alpha = 0.62f),
+        border = BorderStroke(1.dp, ForgeLine),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(ForgeTeal),
+            )
+            Text(
+                modifier = Modifier.weight(1f),
+                text = "PocketForge / phase-1-ui",
+                color = ForgeInk,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = "Mock local context",
+                color = ForgeMuted,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ChatComposer(onOpenBrief: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        color = ForgePaper,
+        border = BorderStroke(1.dp, ForgeLine),
     ) {
         Column(
-            modifier = Modifier.padding(15.dp),
-            verticalArrangement = Arrangement.spacedBy(11.dp),
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            Text(
+                text = "Ask PocketForge to plan a local code change...",
+                color = ForgeMuted,
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+                fontWeight = FontWeight.Medium,
+            )
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(9.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    LabelText(text = "Phone sandbox", dark = false)
+                ComposerChip(text = "+ repo")
+                ComposerChip(text = "files")
+                ComposerChip(text = "plan only")
+                Button(
+                    modifier = Modifier.weight(1f),
+                    onClick = onOpenBrief,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ForgeInk,
+                        contentColor = ForgePaper,
+                    ),
+                    shape = CircleShape,
+                ) {
                     Text(
-                        text = "Session preview",
-                        color = ForgePaper,
-                        fontSize = 25.sp,
-                        lineHeight = 26.sp,
-                        fontWeight = FontWeight.ExtraBold,
+                        text = "Brief",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
                     )
                 }
-                StatusChip(text = "Mock", color = ForgeGold)
             }
             Text(
-                text = "Local-only transcript shape. Messages and tool rows are placeholders; no command has run.",
-                color = ForgePaper.copy(alpha = 0.72f),
-                fontSize = 12.sp,
-                lineHeight = 17.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-
-            ChatMessageBubble(
-                speaker = "You",
-                body = "Make the app feel like I can inspect a repo and hand a scoped task to a phone-side agent.",
-                mine = true,
-            )
-            ChatMessageBubble(
-                speaker = "PocketForge",
-                body = "I can draft the local plan, map likely files, and wait for your review before any sandbox action.",
-                mine = false,
-            )
-            ToolActivityPanel()
-            ChatMessageBubble(
-                speaker = "PocketForge",
-                body = "Next handoff: convert this into a Build brief with repo, files, constraints, and checks.",
-                mine = false,
+                text = "Preview composer. No code runs from this screen.",
+                color = ForgeMuted.copy(alpha = 0.78f),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium,
             )
         }
     }
+}
 
-    FeatureCard(
-        label = "Task brief handoff",
-        title = "Promote chat into a Build brief.",
-        body = "The affordance is here early so the flow is visible: chat first, inspect context, then save a local task brief. It does not execute code.",
-        color = ForgeGold,
+@Composable
+private fun ComposerChip(text: String) {
+    Surface(
+        shape = CircleShape,
+        color = ForgeCanvas,
+        border = BorderStroke(1.dp, ForgeLine),
     ) {
-        Button(
-            modifier = Modifier.fillMaxWidth(),
-            onClick = onOpenBrief,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = ForgeInk,
-                contentColor = ForgePaper,
-            ),
-            shape = MaterialTheme.shapes.medium,
-        ) {
-            Text(
-                text = "Open Build brief",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.ExtraBold,
-            )
-        }
+        Text(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+            text = text,
+            color = ForgeInk,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+        )
     }
-
-    QueueRow(
-        badge = "1",
-        title = "Local memory",
-        detail = "Recent prompts stay on this device in Phase 1 preview.",
-        state = "Preview",
-        color = ForgeMint,
-    )
-    QueueRow(
-        badge = "2",
-        title = "Sandbox handoff",
-        detail = "Future runs require explicit review before execution.",
-        state = "Later",
-        color = ForgeSlate,
-    )
 }
 
 @Composable
@@ -393,27 +479,27 @@ private fun ChatMessageBubble(
         horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
     ) {
         Surface(
-            modifier = Modifier.fillMaxWidth(if (mine) 0.88f else 0.94f),
-            shape = MaterialTheme.shapes.medium,
-            color = if (mine) ForgeGold else ForgePaper.copy(alpha = 0.08f),
-            border = BorderStroke(1.dp, if (mine) ForgeGold else ForgePaper.copy(alpha = 0.22f)),
+            modifier = Modifier.fillMaxWidth(if (mine) 0.86f else 0.96f),
+            shape = RoundedCornerShape(18.dp),
+            color = if (mine) ForgeInk else ForgePaper.copy(alpha = 0.72f),
+            border = BorderStroke(1.dp, if (mine) ForgeInk else ForgeLine),
         ) {
             Column(
-                modifier = Modifier.padding(11.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.padding(horizontal = 13.dp, vertical = 11.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
             ) {
                 Text(
                     text = speaker,
-                    color = if (mine) ForgeInk else ForgePaper.copy(alpha = 0.58f),
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.ExtraBold,
+                    color = if (mine) ForgePaper.copy(alpha = 0.68f) else ForgeMuted,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
                 )
                 Text(
                     text = body,
-                    color = if (mine) ForgeInk else ForgePaper,
-                    fontSize = 12.sp,
-                    lineHeight = 17.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    color = if (mine) ForgePaper else ForgeInk,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    fontWeight = FontWeight.Medium,
                 )
             }
         }
@@ -424,23 +510,38 @@ private fun ChatMessageBubble(
 private fun ToolActivityPanel() {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        color = ForgePaper.copy(alpha = 0.08f),
-        border = BorderStroke(1.dp, ForgePaper.copy(alpha = 0.22f)),
+        shape = RoundedCornerShape(18.dp),
+        color = ForgePaper.copy(alpha = 0.68f),
+        border = BorderStroke(1.dp, ForgeLine),
     ) {
         Column(
-            modifier = Modifier.padding(11.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(13.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    modifier = Modifier.weight(1f),
+                    text = "Local plan preview",
+                    color = ForgeInk,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                StatusChip(text = "No run", color = ForgeRust)
+            }
+            ToolActivityRow(step = "Map repo context", detail = "Preview row only", color = ForgeMint)
+            ToolActivityRow(step = "List likely files", detail = "Mock inspection plan", color = ForgeBlue)
+            ToolActivityRow(step = "Prepare patch plan", detail = "No execution in Phase 1", color = ForgeGold)
             Text(
-                text = "Tool activity placeholders",
-                color = ForgePaper,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.ExtraBold,
+                text = "These rows describe a future local workflow. They do not claim that files were read or code ran.",
+                color = ForgeMuted,
+                fontSize = 10.sp,
+                lineHeight = 14.sp,
+                fontWeight = FontWeight.Medium,
             )
-            ToolActivityRow(step = "read repo map", detail = "Preview row only", color = ForgeMint)
-            ToolActivityRow(step = "inspect likely files", detail = "Waiting for Phase 2 file access", color = ForgeBlue)
-            ToolActivityRow(step = "prepare patch plan", detail = "No execution in Phase 1", color = ForgeGold)
         }
     }
 }
@@ -458,25 +559,25 @@ private fun ToolActivityRow(
     ) {
         Box(
             modifier = Modifier
-                .size(22.dp)
+                .size(9.dp)
                 .clip(RoundedCornerShape(6.dp))
                 .background(color),
         )
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = step,
-                color = ForgePaper,
+                color = ForgeInk,
                 fontSize = 12.sp,
-                fontWeight = FontWeight.ExtraBold,
+                fontWeight = FontWeight.SemiBold,
             )
             Text(
                 text = detail,
-                color = ForgePaper.copy(alpha = 0.62f),
+                color = ForgeMuted,
                 fontSize = 10.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Medium,
             )
         }
-        StatusChip(text = "Idle", color = color)
+        StatusChip(text = "Preview", color = ForgeMuted)
     }
 }
 
@@ -545,7 +646,7 @@ private fun RepoPickerRow(
             .clickable(onClick = onClick),
         shape = MaterialTheme.shapes.medium,
         color = if (selected) ForgeInk else ForgePaper,
-        border = BorderStroke(2.dp, if (selected) ForgeRust else ForgeInk),
+        border = BorderStroke(1.dp, if (selected) ForgeRust else ForgeLine),
     ) {
         Row(
             modifier = Modifier.padding(11.dp),
@@ -571,15 +672,15 @@ private fun RepoPickerRow(
                     text = repo.name,
                     color = if (selected) ForgePaper else ForgeInk,
                     fontSize = 13.sp,
-                    fontWeight = FontWeight.ExtraBold,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = repo.path,
                     color = if (selected) ForgePaper.copy(alpha = 0.68f) else ForgeMuted,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -638,7 +739,7 @@ private fun FileBrowserRow(
             .clickable(onClick = onClick),
         shape = MaterialTheme.shapes.medium,
         color = if (selected) ForgeInk else ForgePaper,
-        border = BorderStroke(1.dp, if (selected) ForgeRust else ForgeInk.copy(alpha = 0.28f)),
+        border = BorderStroke(1.dp, if (selected) ForgeRust else ForgeLine),
     ) {
         Row(
             modifier = Modifier.padding(10.dp),
@@ -649,14 +750,14 @@ private fun FileBrowserRow(
                 text = file.kind,
                 color = if (selected) ForgeGold else ForgeRust,
                 fontSize = 10.sp,
-                fontWeight = FontWeight.ExtraBold,
+                fontWeight = FontWeight.SemiBold,
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = file.name,
                     color = if (selected) ForgePaper else ForgeInk,
                     fontSize = 12.sp,
-                    fontWeight = FontWeight.ExtraBold,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -677,9 +778,9 @@ private fun FileBrowserRow(
 private fun FilePreviewPanel(file: MockFile) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
+        shape = RoundedCornerShape(22.dp),
         color = ForgeInk,
-        border = BorderStroke(2.dp, ForgePaper),
+        border = BorderStroke(1.dp, ForgeLineLight),
     ) {
         Column(
             modifier = Modifier.padding(15.dp),
@@ -697,7 +798,7 @@ private fun FilePreviewPanel(file: MockFile) {
                         color = ForgePaper,
                         fontSize = 21.sp,
                         lineHeight = 23.sp,
-                        fontWeight = FontWeight.ExtraBold,
+                        fontWeight = FontWeight.Medium,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -716,7 +817,7 @@ private fun FilePreviewPanel(file: MockFile) {
                 modifier = Modifier.fillMaxWidth(),
                 shape = MaterialTheme.shapes.medium,
                 color = ForgeGraphite,
-                border = BorderStroke(1.dp, ForgePaper.copy(alpha = 0.16f)),
+                border = BorderStroke(1.dp, ForgeLineLight),
             ) {
                 Text(
                     modifier = Modifier.padding(12.dp),
@@ -1011,8 +1112,8 @@ private fun RecentBriefRow(
             .fillMaxWidth()
             .clickable(onClick = onClick),
         shape = MaterialTheme.shapes.medium,
-        color = if (isActive) ForgeMint else ForgePaper,
-        border = BorderStroke(2.dp, if (isActive) ForgeTeal else ForgeInk),
+        color = if (isActive) ForgeMint.copy(alpha = 0.72f) else ForgePaper.copy(alpha = 0.72f),
+        border = BorderStroke(1.dp, if (isActive) ForgeTeal else ForgeLine),
     ) {
         Row(
             modifier = Modifier.padding(10.dp),
@@ -1038,7 +1139,7 @@ private fun RecentBriefRow(
                     text = brief.title.ifBlank { "Untitled local task" },
                     color = ForgeInk,
                     fontSize = 13.sp,
-                    fontWeight = FontWeight.ExtraBold,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -1046,7 +1147,7 @@ private fun RecentBriefRow(
                     text = rowDetail,
                     color = ForgeMuted,
                     fontSize = 10.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Medium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -1146,9 +1247,9 @@ private fun AgentBriefCard(
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
+        shape = RoundedCornerShape(22.dp),
         color = ForgeInk,
-        border = BorderStroke(2.dp, ForgePaper),
+        border = BorderStroke(1.dp, ForgeLineLight),
     ) {
         Column(
             modifier = Modifier.padding(15.dp),
@@ -1160,7 +1261,7 @@ private fun AgentBriefCard(
                 color = ForgePaper,
                 fontSize = 12.sp,
                 lineHeight = 18.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Medium,
             )
         }
     }
@@ -1218,9 +1319,9 @@ private fun RunPlanPreview(
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
+        shape = RoundedCornerShape(22.dp),
         color = ForgeInk,
-        border = BorderStroke(2.dp, ForgePaper),
+        border = BorderStroke(1.dp, ForgeLineLight),
     ) {
         Column(
             modifier = Modifier.padding(15.dp),
@@ -1241,7 +1342,7 @@ private fun RunPlanPreview(
                 color = ForgePaper,
                 fontSize = 23.sp,
                 lineHeight = 25.sp,
-                fontWeight = FontWeight.ExtraBold,
+                fontWeight = FontWeight.Medium,
             )
             Text(
                 text = "Preview only. This turns the brief into local workflow steps; it does not execute code yet.",
@@ -1736,30 +1837,29 @@ private fun QueueRow(
     state: String,
     color: Color,
 ) {
-    Card(
+    Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = ForgePaper),
-        border = BorderStroke(2.dp, ForgeInk),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        color = ForgePaper.copy(alpha = 0.68f),
+        border = BorderStroke(1.dp, ForgeLine),
     ) {
         Row(
-            modifier = Modifier.padding(10.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Box(
                 modifier = Modifier
-                    .size(38.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .size(28.dp)
+                    .clip(CircleShape)
                     .background(color),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = badge,
                     color = ForgeInk,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                 )
             }
@@ -1768,20 +1868,20 @@ private fun QueueRow(
                     text = title,
                     color = ForgeInk,
                     fontSize = 13.sp,
-                    fontWeight = FontWeight.ExtraBold,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = detail,
                     color = ForgeMuted,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            StatusChip(text = state, color = ForgeInk)
+            StatusChip(text = state, color = ForgeMuted)
         }
     }
 }
@@ -1796,32 +1896,39 @@ private fun FeatureCard(
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        color = color,
-        border = BorderStroke(2.dp, ForgeInk),
+        shape = MaterialTheme.shapes.medium,
+        color = ForgePaper.copy(alpha = 0.72f),
+        border = BorderStroke(1.dp, ForgeLine),
     ) {
         Column(
-            modifier = Modifier.padding(15.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(11.dp),
         ) {
-            LabelText(text = label, dark = color != ForgeGreen && color != ForgeInk)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 24.dp, height = 2.dp)
+                        .background(color),
+                )
+                LabelText(text = label, dark = true)
+            }
             Text(
                 text = title,
-                color = if (color == ForgeGreen || color == ForgeInk) ForgePaper else ForgeInk,
-                fontSize = 25.sp,
-                lineHeight = 26.sp,
-                fontWeight = FontWeight.ExtraBold,
+                color = ForgeInk,
+                fontSize = 22.sp,
+                lineHeight = 24.sp,
+                fontWeight = FontWeight.Medium,
             )
             Text(
                 text = body,
-                color = if (color == ForgeGreen || color == ForgeInk) {
-                    ForgePaper.copy(alpha = 0.78f)
-                } else {
-                    ForgeInk.copy(alpha = 0.68f)
-                },
-                fontSize = 12.sp,
-                lineHeight = 17.sp,
-                fontWeight = FontWeight.SemiBold,
+                color = ForgeMuted,
+                fontSize = 13.sp,
+                lineHeight = 19.sp,
+                fontWeight = FontWeight.Medium,
             )
             footer()
         }
@@ -1849,27 +1956,28 @@ private fun ScoreBars(values: List<Float>) {
 private fun DarkBlueprintPanel() {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
+        shape = RoundedCornerShape(22.dp),
         color = ForgeInk,
-        border = BorderStroke(2.dp, ForgePaper),
+        border = BorderStroke(1.dp, ForgeLineLight),
     ) {
         Column(
-            modifier = Modifier.padding(17.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(11.dp),
         ) {
+            LabelText(text = "Build sheet", dark = false)
             Text(
-                text = "Ready to brief.",
+                text = "Shape the next local run.",
                 color = ForgePaper,
-                fontSize = 30.sp,
-                lineHeight = 31.sp,
-                fontWeight = FontWeight.ExtraBold,
+                fontSize = 27.sp,
+                lineHeight = 29.sp,
+                fontWeight = FontWeight.Medium,
             )
             Text(
-                text = "Draft a phone-side coding task now; keep cloud services as optional handoff points.",
+                text = "Draft a phone-side task, inspect the generated plan, and mark it ready only after the preview checks make sense.",
                 color = ForgePaper.copy(alpha = 0.72f),
-                fontSize = 12.sp,
-                lineHeight = 17.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontSize = 13.sp,
+                lineHeight = 19.sp,
+                fontWeight = FontWeight.Medium,
             )
         }
     }
@@ -1880,8 +1988,8 @@ private fun DraftSavedRow() {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        color = ForgePaper,
-        border = BorderStroke(2.dp, ForgeInk),
+        color = ForgePaper.copy(alpha = 0.66f),
+        border = BorderStroke(1.dp, ForgeLine),
     ) {
         Row(
             modifier = Modifier.padding(12.dp),
@@ -1893,13 +2001,13 @@ private fun DraftSavedRow() {
                     text = "Local draft persists",
                     color = ForgeInk,
                     fontSize = 13.sp,
-                    fontWeight = FontWeight.ExtraBold,
+                    fontWeight = FontWeight.SemiBold,
                 )
                 Text(
                     text = "Agent task fields save locally on this device.",
                     color = ForgeMuted,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
                 )
             }
             StatusChip(text = "Saved", color = ForgeTeal)
@@ -1916,19 +2024,20 @@ private fun PlanCell(
     Surface(
         modifier = modifier,
         shape = MaterialTheme.shapes.medium,
-        color = ForgeInk,
-        border = BorderStroke(2.dp, ForgePaper),
+        color = ForgePaper.copy(alpha = 0.72f),
+        border = BorderStroke(1.dp, ForgeLine),
     ) {
         Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(11.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
         ) {
-            LabelText(text = label, dark = false)
+            LabelText(text = label, dark = true)
             Text(
                 text = value,
-                color = ForgePaper,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.ExtraBold,
+                color = ForgeInk,
+                fontSize = 15.sp,
+                lineHeight = 18.sp,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -1942,7 +2051,7 @@ private fun RailCard(label: String, content: @Composable () -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
         color = ForgeInk,
-        border = BorderStroke(2.dp, ForgePaper),
+        border = BorderStroke(1.dp, ForgeLineLight),
     ) {
         Column(
             modifier = Modifier.padding(13.dp),
@@ -1996,14 +2105,14 @@ private fun SectionHeader(title: String, action: String) {
             text = title,
             color = ForgeInk,
             fontSize = 16.sp,
-            fontWeight = FontWeight.ExtraBold,
+            fontWeight = FontWeight.SemiBold,
         )
         TextButton(onClick = {}) {
             Text(
                 text = action,
                 color = ForgeRust,
                 fontSize = 11.sp,
-                fontWeight = FontWeight.ExtraBold,
+                fontWeight = FontWeight.SemiBold,
             )
         }
     }
@@ -2011,18 +2120,14 @@ private fun SectionHeader(title: String, action: String) {
 
 @Composable
 private fun SectionTitleBlock(title: String, subtitle: String) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        LabelText(text = subtitle, dark = true)
         Text(
             text = title,
             color = ForgeInk,
-            fontSize = 25.sp,
-            fontWeight = FontWeight.ExtraBold,
-        )
-        Text(
-            text = subtitle,
-            color = ForgeMuted,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.ExtraBold,
+            fontSize = 28.sp,
+            lineHeight = 30.sp,
+            fontWeight = FontWeight.Medium,
         )
     }
 }
@@ -2092,10 +2197,10 @@ private fun BottomWorkbenchTabs(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        shape = MaterialTheme.shapes.large,
-        color = ForgePaper,
-        border = BorderStroke(2.dp, ForgeInk),
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        shape = CircleShape,
+        color = ForgePaper.copy(alpha = 0.9f),
+        border = BorderStroke(1.dp, ForgeLine),
     ) {
         Row(
             modifier = Modifier.padding(6.dp),
@@ -2106,24 +2211,18 @@ private fun BottomWorkbenchTabs(
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(MaterialTheme.shapes.medium)
+                        .clip(CircleShape)
                         .clickable { onTabSelected(tab) }
                         .background(if (selected) ForgeInk else Color.Transparent)
                         .padding(vertical = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(width = 18.dp, height = 3.dp)
-                            .clip(CircleShape)
-                            .background(if (selected) ForgePaper else ForgeInk.copy(alpha = 0.45f)),
-                    )
                     Text(
                         text = tab.label,
                         color = if (selected) ForgePaper else ForgeInk.copy(alpha = 0.58f),
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -2469,6 +2568,8 @@ private val ForgeInk = Color(0xFF111412)
 private val ForgeCanvas = Color(0xFFE9E3D6)
 private val ForgePaper = Color(0xFFFBF8EF)
 private val ForgeMuted = Color(0xFF616963)
+private val ForgeLine = Color(0x29111412)
+private val ForgeLineLight = Color(0x30FBF8EF)
 private val ForgeGreen = Color(0xFF16352D)
 private val ForgeGraphite = Color(0xFF171714)
 private val ForgeSlate = Color(0xFF60727A)
