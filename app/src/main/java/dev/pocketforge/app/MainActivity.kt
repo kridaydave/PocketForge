@@ -134,6 +134,16 @@ private fun PocketForgeApp(
         restoreDraft(EmptyAgentTaskDraft)
     }
 
+    fun deleteRecentBrief(briefToDelete: AgentTaskDraft) {
+        val updatedBriefs = recentBriefs.filterNot { it.isSameBriefAs(briefToDelete) }
+        recentBriefs = updatedBriefs
+        onRecentBriefsChanged(updatedBriefs)
+
+        if (briefToDelete.isSameBriefAs(currentDraft())) {
+            clearDraft()
+        }
+    }
+
     fun updateCurrentReadyState() {
         val readyDraft = currentDraft(markedReady = true)
         taskMarkedReady = true
@@ -208,6 +218,7 @@ private fun PocketForgeApp(
                             recentBriefs = recentBriefs,
                             onSaveBrief = ::saveCurrentBrief,
                             onSelectRecentBrief = ::restoreDraft,
+                            onDeleteRecentBrief = ::deleteRecentBrief,
                             onClearDraft = ::clearDraft,
                             onMarkReady = ::updateCurrentReadyState,
                         )
@@ -392,6 +403,7 @@ private fun BlueprintScreen(
     recentBriefs: List<AgentTaskDraft>,
     onSaveBrief: () -> Unit,
     onSelectRecentBrief: (AgentTaskDraft) -> Unit,
+    onDeleteRecentBrief: (AgentTaskDraft) -> Unit,
     onClearDraft: () -> Unit,
     onMarkReady: () -> Unit,
 ) {
@@ -404,6 +416,7 @@ private fun BlueprintScreen(
         recentBriefs = recentBriefs,
         onSaveBrief = onSaveBrief,
         onSelectBrief = onSelectRecentBrief,
+        onDeleteBrief = onDeleteRecentBrief,
         onClearDraft = onClearDraft,
     )
 
@@ -470,6 +483,7 @@ private fun RecentBriefsPanel(
     recentBriefs: List<AgentTaskDraft>,
     onSaveBrief: () -> Unit,
     onSelectBrief: (AgentTaskDraft) -> Unit,
+    onDeleteBrief: (AgentTaskDraft) -> Unit,
     onClearDraft: () -> Unit,
 ) {
     FeatureCard(
@@ -522,6 +536,7 @@ private fun RecentBriefsPanel(
                         index = index,
                         isActive = brief.isSameBriefAs(currentBrief),
                         onClick = { onSelectBrief(brief) },
+                        onDelete = { onDeleteBrief(brief) },
                     )
                 }
             }
@@ -535,6 +550,7 @@ private fun RecentBriefRow(
     index: Int,
     isActive: Boolean,
     onClick: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     val queueStatus = remember(brief) { brief.readinessStatus() }
 
@@ -594,6 +610,14 @@ private fun RecentBriefRow(
                 StatusChip(text = queueStatus.label, color = queueStatus.color)
                 if (isActive) {
                     StatusChip(text = "Active", color = ForgeTeal)
+                }
+                TextButton(onClick = onDelete) {
+                    Text(
+                        text = "Delete",
+                        color = ForgeRust,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
                 }
             }
         }
