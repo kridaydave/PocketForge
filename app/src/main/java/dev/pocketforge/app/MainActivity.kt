@@ -3,6 +3,8 @@ package dev.pocketforge.app
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.BorderStroke
@@ -36,6 +38,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.Typography
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,6 +50,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -54,20 +58,83 @@ import androidx.compose.ui.unit.sp
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
+    private lateinit var githubExecutor: ExecutorService
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val draftStore = getSharedPreferences(AGENT_DRAFT_PREFS, Context.MODE_PRIVATE)
+        val githubTokenStore = GitHubTokenStore(this)
+        val githubClient = GitHubReadOnlyClient()
+        val mainHandler = Handler(Looper.getMainLooper())
+        githubExecutor = Executors.newSingleThreadExecutor()
+
+        fun <T> runGitHubAction(
+            callback: (GitHubUiResult<T>) -> Unit,
+            action: () -> T,
+        ) {
+            githubExecutor.execute {
+                val result = try {
+                    GitHubUiResult.Success(action())
+                } catch (error: Exception) {
+                    GitHubUiResult.Error(error.message ?: "GitHub read-only request failed.")
+                }
+                mainHandler.post { callback(result) }
+            }
+        }
+
+        val githubActions = GitHubReadOnlyActions(
+            saveToken = { token, callback ->
+                runGitHubAction(callback) {
+                    githubTokenStore.saveToken(token)
+                }
+            },
+            clearToken = { callback ->
+                runGitHubAction(callback) {
+                    githubTokenStore.clearToken()
+                }
+            },
+            loadRepos = { callback ->
+                runGitHubAction(callback) {
+                    val token = githubTokenStore.loadToken()
+                        ?: throw IllegalStateException("Connect a GitHub token in Settings first.")
+                    githubClient.listRepos(token)
+                }
+            },
+            loadContents = { repo, path, callback ->
+                runGitHubAction(callback) {
+                    val token = githubTokenStore.loadToken()
+                        ?: throw IllegalStateException("Connect a GitHub token in Settings first.")
+                    githubClient.listContents(token = token, repo = repo, path = path)
+                }
+            },
+            loadFile = { repo, item, callback ->
+                runGitHubAction(callback) {
+                    val token = githubTokenStore.loadToken()
+                        ?: throw IllegalStateException("Connect a GitHub token in Settings first.")
+                    githubClient.loadFile(token = token, repo = repo, item = item)
+                }
+            },
+        )
 
         setContent {
             PocketForgeApp(
                 initialDraft = draftStore.loadAgentTaskDraft(),
                 initialRecentBriefs = draftStore.loadRecentAgentBriefs(),
+                initialGithubTokenStored = githubTokenStore.hasToken(),
+                githubActions = githubActions,
                 onDraftChanged = draftStore::saveAgentTaskDraft,
                 onRecentBriefsChanged = draftStore::saveRecentAgentBriefs,
             )
         }
+    }
+
+    override fun onDestroy() {
+        githubExecutor.shutdown()
+        super.onDestroy()
     }
 }
 
@@ -75,13 +142,27 @@ class MainActivity : ComponentActivity() {
 private fun PocketForgeApp(
     initialDraft: AgentTaskDraft = DefaultAgentTaskDraft,
     initialRecentBriefs: List<AgentTaskDraft> = emptyList(),
+    initialGithubTokenStored: Boolean = false,
+    githubActions: GitHubReadOnlyActions = NoopGitHubReadOnlyActions,
     onDraftChanged: (AgentTaskDraft) -> Unit = {},
     onRecentBriefsChanged: (List<AgentTaskDraft>) -> Unit = {},
 ) {
     var selectedTab by remember { mutableStateOf(WorkbenchTab.Chat) }
-    var selectedRepoIndex by remember { mutableStateOf(0) }
-    var selectedBranch by remember { mutableStateOf(MockRepos.first().branches.first()) }
-    var selectedFilePath by remember { mutableStateOf(MockFiles.first().path) }
+    var githubTokenStored by remember { mutableStateOf(initialGithubTokenStored) }
+    var githubTokenBusy by remember { mutableStateOf(false) }
+    var githubTokenMessage by remember { mutableStateOf("") }
+    var githubRepos by remember { mutableStateOf<List<GitHubRepo>>(emptyList()) }
+    var selectedGithubRepo by remember { mutableStateOf<GitHubRepo?>(null) }
+    var reposLoading by remember { mutableStateOf(false) }
+    var reposError by remember { mutableStateOf("") }
+    var repoContents by remember { mutableStateOf<List<GitHubContentItem>>(emptyList()) }
+    var repoContentsLoading by remember { mutableStateOf(false) }
+    var repoContentsError by remember { mutableStateOf("") }
+    var currentRepoPath by remember { mutableStateOf("") }
+    var fileSearchQuery by remember { mutableStateOf("") }
+    var selectedFilePreview by remember { mutableStateOf<GitHubFilePreview?>(null) }
+    var filePreviewLoading by remember { mutableStateOf(false) }
+    var filePreviewError by remember { mutableStateOf("") }
     var taskTitle by remember { mutableStateOf(initialDraft.title) }
     var taskGoal by remember { mutableStateOf(initialDraft.goal) }
     var taskRepo by remember { mutableStateOf(initialDraft.repo) }
@@ -91,6 +172,143 @@ private fun PocketForgeApp(
     var recentBriefs by remember { mutableStateOf(initialRecentBriefs) }
     var loadedQueuedBrief by remember {
         mutableStateOf(initialRecentBriefs.firstOrNull { it.isSameBriefAs(initialDraft) })
+    }
+
+    fun loadContents(repo: GitHubRepo, path: String) {
+        repoContentsLoading = true
+        repoContentsError = ""
+        filePreviewError = ""
+        selectedFilePreview = null
+        githubActions.loadContents(repo, path) { result ->
+            repoContentsLoading = false
+            when (result) {
+                is GitHubUiResult.Success -> {
+                    repoContents = result.value
+                    currentRepoPath = path
+                }
+
+                is GitHubUiResult.Error -> {
+                    repoContents = emptyList()
+                    repoContentsError = result.message
+                }
+            }
+        }
+    }
+
+    fun loadRepos() {
+        if (!githubTokenStored) {
+            reposError = "Connect a GitHub token in Settings first."
+            return
+        }
+
+        reposLoading = true
+        reposError = ""
+        githubActions.loadRepos { result ->
+            reposLoading = false
+            when (result) {
+                is GitHubUiResult.Success -> {
+                    githubRepos = result.value
+                    val nextSelectedRepo = selectedGithubRepo
+                        ?.let { selected -> result.value.firstOrNull { it.id == selected.id } }
+                        ?: result.value.firstOrNull()
+                    selectedGithubRepo = nextSelectedRepo
+                    if (nextSelectedRepo != null) {
+                        loadContents(nextSelectedRepo, "")
+                    } else {
+                        repoContents = emptyList()
+                        currentRepoPath = ""
+                        selectedFilePreview = null
+                    }
+                }
+
+                is GitHubUiResult.Error -> {
+                    githubRepos = emptyList()
+                    selectedGithubRepo = null
+                    repoContents = emptyList()
+                    reposError = result.message
+                }
+            }
+        }
+    }
+
+    fun selectRepo(repo: GitHubRepo) {
+        selectedGithubRepo = repo
+        fileSearchQuery = ""
+        loadContents(repo, "")
+    }
+
+    fun openContentItem(item: GitHubContentItem) {
+        val repo = selectedGithubRepo ?: return
+        if (item.isDirectory) {
+            loadContents(repo, item.path)
+            return
+        }
+
+        filePreviewLoading = true
+        filePreviewError = ""
+        githubActions.loadFile(repo, item) { result ->
+            filePreviewLoading = false
+            when (result) {
+                is GitHubUiResult.Success -> selectedFilePreview = result.value
+                is GitHubUiResult.Error -> {
+                    selectedFilePreview = null
+                    filePreviewError = result.message
+                }
+            }
+        }
+    }
+
+    fun openParentDirectory() {
+        val repo = selectedGithubRepo ?: return
+        val parentPath = currentRepoPath.substringBeforeLast("/", missingDelimiterValue = "")
+        loadContents(repo, parentPath)
+    }
+
+    fun saveGithubToken(token: String) {
+        githubTokenBusy = true
+        githubTokenMessage = ""
+        githubActions.saveToken(token) { result ->
+            githubTokenBusy = false
+            when (result) {
+                is GitHubUiResult.Success -> {
+                    githubTokenStored = true
+                    githubTokenMessage = "GitHub token saved on this device. Read-only repo browsing is available."
+                    loadRepos()
+                }
+
+                is GitHubUiResult.Error -> githubTokenMessage = result.message
+            }
+        }
+    }
+
+    fun clearGithubToken() {
+        githubTokenBusy = true
+        githubTokenMessage = ""
+        githubActions.clearToken { result ->
+            githubTokenBusy = false
+            when (result) {
+                is GitHubUiResult.Success -> {
+                    githubTokenStored = false
+                    githubRepos = emptyList()
+                    selectedGithubRepo = null
+                    repoContents = emptyList()
+                    selectedFilePreview = null
+                    currentRepoPath = ""
+                    reposError = ""
+                    repoContentsError = ""
+                    filePreviewError = ""
+                    githubTokenMessage = "GitHub token removed from this device."
+                }
+
+                is GitHubUiResult.Error -> githubTokenMessage = result.message
+            }
+        }
+    }
+
+    LaunchedEffect(githubTokenStored) {
+        if (githubTokenStored && githubRepos.isEmpty() && !reposLoading) {
+            loadRepos()
+        }
     }
 
     fun currentDraft(
@@ -216,18 +434,33 @@ private fun PocketForgeApp(
                         )
 
                         WorkbenchTab.Repos -> ReposScreen(
-                            selectedRepoIndex = selectedRepoIndex,
-                            selectedBranch = selectedBranch,
-                            onRepoSelected = { repoIndex ->
-                                selectedRepoIndex = repoIndex
-                                selectedBranch = MockRepos[repoIndex].branches.first()
-                            },
-                            onBranchSelected = { selectedBranch = it },
+                            tokenStored = githubTokenStored,
+                            repos = githubRepos,
+                            selectedRepo = selectedGithubRepo,
+                            loading = reposLoading,
+                            error = reposError,
+                            onRefresh = ::loadRepos,
+                            onRepoSelected = ::selectRepo,
+                            onOpenFiles = { selectedTab = WorkbenchTab.Files },
                         )
 
                         WorkbenchTab.Files -> FilesScreen(
-                            selectedFilePath = selectedFilePath,
-                            onFileSelected = { selectedFilePath = it },
+                            tokenStored = githubTokenStored,
+                            selectedRepo = selectedGithubRepo,
+                            currentPath = currentRepoPath,
+                            contents = repoContents,
+                            searchQuery = fileSearchQuery,
+                            selectedFile = selectedFilePreview,
+                            contentsLoading = repoContentsLoading,
+                            contentsError = repoContentsError,
+                            fileLoading = filePreviewLoading,
+                            fileError = filePreviewError,
+                            onSearchChange = { fileSearchQuery = it },
+                            onRefresh = {
+                                selectedGithubRepo?.let { repo -> loadContents(repo, currentRepoPath) }
+                            },
+                            onOpenItem = ::openContentItem,
+                            onBack = ::openParentDirectory,
                         )
 
                         WorkbenchTab.Build -> BlueprintScreen(
@@ -271,7 +504,13 @@ private fun PocketForgeApp(
                             onMarkReady = ::updateCurrentReadyState,
                         )
 
-                        WorkbenchTab.Settings -> SettingsScreen()
+                        WorkbenchTab.Settings -> SettingsScreen(
+                            tokenStored = githubTokenStored,
+                            busy = githubTokenBusy,
+                            message = githubTokenMessage,
+                            onSaveToken = ::saveGithubToken,
+                            onClearToken = ::clearGithubToken,
+                        )
                     }
                 }
 
@@ -644,60 +883,112 @@ private fun ToolActivityRow(
 
 @Composable
 private fun ReposScreen(
-    selectedRepoIndex: Int,
-    selectedBranch: String,
-    onRepoSelected: (Int) -> Unit,
-    onBranchSelected: (String) -> Unit,
+    tokenStored: Boolean,
+    repos: List<GitHubRepo>,
+    selectedRepo: GitHubRepo?,
+    loading: Boolean,
+    error: String,
+    onRefresh: () -> Unit,
+    onRepoSelected: (GitHubRepo) -> Unit,
+    onOpenFiles: () -> Unit,
 ) {
-    val selectedRepo = MockRepos[selectedRepoIndex]
-
-    SectionTitleBlock(title = "Repos", subtitle = "Local project picker")
+    SectionTitleBlock(title = "Repos", subtitle = "GitHub READ ONLY")
 
     FeatureCard(
-        label = "Selected workspace",
-        title = selectedRepo.name,
-        body = selectedRepo.detail,
+        label = "Selected repository",
+        title = selectedRepo?.fullName ?: "No repo selected",
+        body = selectedRepo?.description?.ifBlank {
+            "GitHub repo connected for read-only browsing. No edits, commits, pushes, shells, or runs are available."
+        } ?: "Connect GitHub in Settings, then refresh to list repos this token can read.",
         color = ForgeMint,
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            PlanCell(modifier = Modifier.weight(1f), label = "Branch", value = selectedBranch)
-            PlanCell(modifier = Modifier.weight(1f), label = "Path", value = selectedRepo.path)
-        }
-    }
-
-    SectionHeader(title = "On-device repos", action = "Mock data")
-    MockRepos.forEachIndexed { index, repo ->
-        RepoPickerRow(
-            repo = repo,
-            selected = index == selectedRepoIndex,
-            onClick = { onRepoSelected(index) },
-        )
-    }
-
-    RailCard(label = "Branch preview") {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            selectedRepo.branches.forEach { branch ->
-                FilterChip(
-                    text = branch,
-                    selected = branch == selectedBranch,
-                    onClick = { onBranchSelected(branch) },
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                PlanCell(
+                    modifier = Modifier.weight(1f),
+                    label = "Mode",
+                    value = "READ ONLY",
                 )
+                PlanCell(
+                    modifier = Modifier.weight(1f),
+                    label = "Branch",
+                    value = selectedRepo?.defaultBranch ?: "None",
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    modifier = Modifier.weight(1f),
+                    enabled = tokenStored && !loading,
+                    onClick = onRefresh,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ForgeInk,
+                        contentColor = ForgePaper,
+                    ),
+                    shape = MaterialTheme.shapes.medium,
+                ) {
+                    Text(
+                        text = if (loading) "Loading" else "Refresh",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                }
+                TextButton(
+                    modifier = Modifier.weight(1f),
+                    enabled = selectedRepo != null,
+                    onClick = onOpenFiles,
+                ) {
+                    Text(
+                        text = "Open files",
+                        color = if (selectedRepo != null) ForgeRust else ForgeMuted,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                }
             }
         }
     }
 
-    QueueRow(
-        badge = "GH",
-        title = "GitHub mirror stays optional",
-        detail = "Phase 2 can add read-only sync; local sandbox remains the center.",
-        state = "Later",
-        color = ForgePeach,
-    )
+    ReadOnlyBoundaryCard()
+
+    SectionHeader(title = "GitHub repositories", action = "Real API")
+    when {
+        !tokenStored -> EmptyStateCard(
+            title = "No GitHub token",
+            body = "Open Settings and save a token with repo read access. PocketForge stores it on this device and only uses read endpoints.",
+            state = "Connect",
+        )
+
+        loading -> EmptyStateCard(
+            title = "Loading repos",
+            body = "PocketForge is reading repo metadata from GitHub. No write actions are available.",
+            state = "Loading",
+        )
+
+        error.isNotBlank() -> EmptyStateCard(
+            title = "Repo read failed",
+            body = error,
+            state = "Error",
+        )
+
+        repos.isEmpty() -> EmptyStateCard(
+            title = "No repos returned",
+            body = "The token worked, but GitHub returned no repositories. Check token scopes and account access.",
+            state = "Empty",
+        )
+
+        else -> repos.forEach { repo ->
+            RepoPickerRow(
+                repo = repo,
+                selected = repo.id == selectedRepo?.id,
+                onClick = { onRepoSelected(repo) },
+            )
+        }
+    }
 }
 
 @Composable
 private fun RepoPickerRow(
-    repo: MockRepo,
+    repo: GitHubRepo,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
@@ -718,11 +1009,11 @@ private fun RepoPickerRow(
                 modifier = Modifier
                     .size(38.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(repo.color),
+                    .background(if (repo.privateRepo) ForgeGold else ForgeMint),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = repo.initials,
+                    text = repo.name.repoInitials(),
                     color = ForgeInk,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.ExtraBold,
@@ -730,7 +1021,7 @@ private fun RepoPickerRow(
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = repo.name,
+                    text = repo.fullName,
                     color = if (selected) ForgePaper else ForgeInk,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -738,59 +1029,169 @@ private fun RepoPickerRow(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = repo.path,
+                    text = repo.description.ifBlank { "Default branch: ${repo.defaultBranch}" },
                     color = if (selected) ForgePaper.copy(alpha = 0.68f) else ForgeMuted,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Medium,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            StatusChip(text = repo.state, color = if (selected) ForgeGold else ForgeInk)
+            StatusChip(
+                text = if (repo.privateRepo) "Private" else "Public",
+                color = if (selected) ForgeGold else ForgeInk,
+            )
         }
     }
 }
 
 @Composable
 private fun FilesScreen(
-    selectedFilePath: String,
-    onFileSelected: (String) -> Unit,
+    tokenStored: Boolean,
+    selectedRepo: GitHubRepo?,
+    currentPath: String,
+    contents: List<GitHubContentItem>,
+    searchQuery: String,
+    selectedFile: GitHubFilePreview?,
+    contentsLoading: Boolean,
+    contentsError: String,
+    fileLoading: Boolean,
+    fileError: String,
+    onSearchChange: (String) -> Unit,
+    onRefresh: () -> Unit,
+    onOpenItem: (GitHubContentItem) -> Unit,
+    onBack: () -> Unit,
 ) {
-    val selectedFile = MockFiles.firstOrNull { it.path == selectedFilePath } ?: MockFiles.first()
-
-    SectionTitleBlock(title = "Files", subtitle = "Inspect code from phone")
-
-    FeatureCard(
-        label = "File browser",
-        title = "PocketForge / phase-1-ui",
-        body = "Mock local tree for Phase 1. The surface should feel ready for real read-only browsing in Phase 2.",
-        color = ForgeBlue,
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            MockFiles.forEach { file ->
-                FileBrowserRow(
-                    file = file,
-                    selected = file.path == selectedFile.path,
-                    onClick = { onFileSelected(file.path) },
-                )
+    val visibleContents = remember(contents, searchQuery) {
+        val query = searchQuery.trim()
+        if (query.isBlank()) {
+            contents
+        } else {
+            contents.filter { item ->
+                item.name.contains(query, ignoreCase = true) ||
+                    item.path.contains(query, ignoreCase = true)
             }
         }
     }
 
-    FilePreviewPanel(file = selectedFile)
+    SectionTitleBlock(title = "Files", subtitle = "Browse READ ONLY")
 
-    QueueRow(
-        badge = "RO",
-        title = "Read-only first",
-        detail = "Phase 2 should browse files before editing or running anything.",
-        state = "Plan",
-        color = ForgeMint,
+    FeatureCard(
+        label = "Repository tree",
+        title = selectedRepo?.fullName ?: "No repository selected",
+        body = when {
+            !tokenStored -> "Connect GitHub in Settings before browsing files."
+            selectedRepo == null -> "Pick a repo on the Repos tab, then browse folders and readable files here."
+            currentPath.isBlank() -> "Root contents on ${selectedRepo?.defaultBranch ?: "default branch"}. Read-only file preview only."
+            else -> currentPath
+        },
+        color = ForgeBlue,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    modifier = Modifier.weight(1f),
+                    enabled = selectedRepo != null && !contentsLoading,
+                    onClick = onRefresh,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ForgeInk,
+                        contentColor = ForgePaper,
+                    ),
+                    shape = MaterialTheme.shapes.medium,
+                ) {
+                    Text(
+                        text = if (contentsLoading) "Loading" else "Refresh",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                }
+                TextButton(
+                    modifier = Modifier.weight(1f),
+                    enabled = currentPath.isNotBlank() && !contentsLoading,
+                    onClick = onBack,
+                ) {
+                    Text(
+                        text = "Up folder",
+                        color = if (currentPath.isNotBlank()) ForgeRust else ForgeMuted,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                }
+            }
+            ForgeTextField(
+                label = "Search files in this folder",
+                value = searchQuery,
+                onValueChange = onSearchChange,
+                singleLine = true,
+            )
+        }
+    }
+
+    ReadOnlyBoundaryCard()
+
+    when {
+        !tokenStored -> EmptyStateCard(
+            title = "No GitHub token",
+            body = "Settings stores the token securely on-device. Files stay unavailable until a token is saved.",
+            state = "Connect",
+        )
+
+        selectedRepo == null -> EmptyStateCard(
+            title = "No repo selected",
+            body = "Select a GitHub repo first. PocketForge will only browse and preview files.",
+            state = "Pick repo",
+        )
+
+        contentsLoading -> EmptyStateCard(
+            title = "Loading folder",
+            body = "Reading GitHub contents for ${currentPath.ifBlank { "repo root" }}.",
+            state = "Loading",
+        )
+
+        contentsError.isNotBlank() -> EmptyStateCard(
+            title = "Folder read failed",
+            body = contentsError,
+            state = "Error",
+        )
+
+        visibleContents.isEmpty() -> EmptyStateCard(
+            title = if (searchQuery.isBlank()) "Folder is empty" else "No matching files",
+            body = if (searchQuery.isBlank()) {
+                "GitHub returned no visible files for this path."
+            } else {
+                "Search matches filenames and paths in the currently loaded folder."
+            },
+            state = "Empty",
+        )
+
+        else -> FeatureCard(
+            label = "Current folder",
+            title = currentPath.ifBlank { selectedRepo?.fullName ?: "Current folder" },
+            body = "Tap folders to open them. Tap text, Markdown, or code files to preview content. Nothing can be edited.",
+            color = ForgeMint,
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                visibleContents.forEach { item ->
+                    FileBrowserRow(
+                        item = item,
+                        selected = item.path == selectedFile?.path,
+                        onClick = { onOpenItem(item) },
+                    )
+                }
+            }
+        }
+    }
+
+    FilePreviewPanel(
+        file = selectedFile,
+        loading = fileLoading,
+        error = fileError,
     )
 }
 
 @Composable
 private fun FileBrowserRow(
-    file: MockFile,
+    item: GitHubContentItem,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
@@ -808,14 +1209,14 @@ private fun FileBrowserRow(
             horizontalArrangement = Arrangement.spacedBy(9.dp),
         ) {
             Text(
-                text = file.kind,
+                text = if (item.isDirectory) "DIR" else item.name.fileKind(),
                 color = if (selected) ForgeGold else ForgeRust,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.SemiBold,
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = file.name,
+                    text = item.name,
                     color = if (selected) ForgePaper else ForgeInk,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -823,20 +1224,27 @@ private fun FileBrowserRow(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = file.path,
+                    text = item.path,
                     color = if (selected) ForgePaper.copy(alpha = 0.62f) else ForgeMuted,
                     fontSize = 9.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            StatusChip(text = file.mode, color = if (selected) ForgeGold else ForgeInk)
+            StatusChip(
+                text = if (item.isDirectory) "Open" else "Read",
+                color = if (selected) ForgeGold else ForgeInk,
+            )
         }
     }
 }
 
 @Composable
-private fun FilePreviewPanel(file: MockFile) {
+private fun FilePreviewPanel(
+    file: GitHubFilePreview?,
+    loading: Boolean,
+    error: String,
+) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(22.dp),
@@ -853,9 +1261,13 @@ private fun FilePreviewPanel(file: MockFile) {
                 horizontalArrangement = Arrangement.spacedBy(9.dp),
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    LabelText(text = "Preview viewer", dark = false)
+                    LabelText(text = "Read-only viewer", dark = false)
                     Text(
-                        text = file.name,
+                        text = when {
+                            loading -> "Loading file"
+                            file != null -> file.name
+                            else -> "Select a readable file"
+                        },
                         color = ForgePaper,
                         fontSize = 21.sp,
                         lineHeight = 23.sp,
@@ -864,14 +1276,14 @@ private fun FilePreviewPanel(file: MockFile) {
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                StatusChip(text = "Read", color = ForgeGold)
+                StatusChip(text = "NO EDIT", color = ForgeGold)
             }
             Text(
-                text = file.path,
+                text = file?.path ?: "Text, Markdown, and code previews appear here.",
                 color = ForgePaper.copy(alpha = 0.58f),
                 fontSize = 10.sp,
                 fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             Surface(
@@ -882,7 +1294,14 @@ private fun FilePreviewPanel(file: MockFile) {
             ) {
                 Text(
                     modifier = Modifier.padding(12.dp),
-                    text = file.preview,
+                    text = when {
+                        loading -> "Reading file content from GitHub..."
+                        error.isNotBlank() -> error
+                        file == null -> "No file selected."
+                        file.tooLarge -> "File is larger than the PocketForge preview limit. It was not downloaded into the viewer."
+                        file.binary -> "This file is binary or not valid UTF-8, so PocketForge will not preview it as text."
+                        else -> file.content
+                    },
                     color = ForgePaper,
                     fontSize = 11.sp,
                     lineHeight = 16.sp,
@@ -890,7 +1309,7 @@ private fun FilePreviewPanel(file: MockFile) {
                 )
             }
             Text(
-                text = "Preview only. Editing, saving, and command execution are intentionally absent in Phase 1.",
+                text = "READ ONLY. No edit, save, commit, push, shell, install, or execution controls exist in this flow.",
                 color = ForgePaper.copy(alpha = 0.64f),
                 fontSize = 10.sp,
                 lineHeight = 14.sp,
@@ -901,24 +1320,91 @@ private fun FilePreviewPanel(file: MockFile) {
 }
 
 @Composable
-private fun SettingsScreen() {
-    SectionTitleBlock(title = "Settings", subtitle = "Preview-only controls")
+private fun SettingsScreen(
+    tokenStored: Boolean,
+    busy: Boolean,
+    message: String,
+    onSaveToken: (String) -> Unit,
+    onClearToken: () -> Unit,
+) {
+    var tokenInput by remember { mutableStateOf("") }
+
+    SectionTitleBlock(title = "Settings", subtitle = "Credentials + safety")
 
     FeatureCard(
-        label = "Local safety",
-        title = "No secrets are stored yet.",
-        body = "These sections reserve the shape for Phase 2 without adding credential persistence or real integrations.",
+        label = "GitHub token",
+        title = if (tokenStored) "Token saved on this device." else "Connect GitHub read-only.",
+        body = "Use a GitHub token that can read the repos you want to inspect. PocketForge stores it with Android Keystore encryption and only calls read endpoints.",
         color = ForgePeach,
     ) {
-        ScoreBars(values = listOf(0.25f, 0.5f, 0.75f))
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedTextField(
+                modifier = Modifier.fillMaxWidth(),
+                value = tokenInput,
+                onValueChange = { tokenInput = it },
+                enabled = !busy,
+                label = {
+                    Text(
+                        text = "GitHub token",
+                        color = ForgeInk,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                shape = MaterialTheme.shapes.medium,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    modifier = Modifier.weight(1f),
+                    enabled = tokenInput.isNotBlank() && !busy,
+                    onClick = {
+                        onSaveToken(tokenInput)
+                        tokenInput = ""
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ForgeInk,
+                        contentColor = ForgePaper,
+                    ),
+                    shape = MaterialTheme.shapes.medium,
+                ) {
+                    Text(
+                        text = if (busy) "Saving" else "Save token",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                }
+                TextButton(
+                    modifier = Modifier.weight(1f),
+                    enabled = tokenStored && !busy,
+                    onClick = onClearToken,
+                ) {
+                    Text(
+                        text = "Remove token",
+                        color = if (tokenStored && !busy) ForgeRust else ForgeMuted,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                }
+            }
+            if (message.isNotBlank()) {
+                Text(
+                    text = message,
+                    color = ForgeMuted,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
     }
 
     SettingsSection(
-        label = "GitHub token",
-        title = "Read-only repo access",
-        body = "Future optional integration for listing repos and opening files. Phase 1 shows the slot only.",
-        status = "Not stored",
-        color = ForgeBlue,
+        label = "GitHub API",
+        title = "Read-only endpoints only",
+        body = "This APK lists repos, lists contents, and reads file blobs. It has no UI or client code for edits, commits, pushes, shell commands, installs, or execution.",
+        status = "READ ONLY",
+        color = ForgeMint,
     )
     SettingsSection(
         label = "Model provider key",
@@ -930,14 +1416,14 @@ private fun SettingsScreen() {
     SettingsSection(
         label = "Sandbox safety",
         title = "Ask before write or run",
-        body = "Future agent actions should require an explicit checkpoint before file edits, installs, or commands.",
-        status = "Required",
-        color = ForgeMint,
+        body = "Phase 2 does not include write or run actions at all. Future agent actions must pass an explicit permission gate.",
+        status = "NO RUN",
+        color = ForgeBlue,
     )
 
     RailCard(label = "Phase boundary") {
         Text(
-            text = "Phase 1 is UI skeleton and inspectability. Secure auth, repo browsing, file reads, edits, and execution belong to later phases.",
+            text = "Phase 2 connects GitHub for inspection only: save token, list repos, browse folders, and preview readable files. No AI edits, commits, pushes, shell, install, or execution.",
             color = ForgePaper,
             fontSize = 12.sp,
             lineHeight = 17.sp,
@@ -973,13 +1459,71 @@ private fun SettingsSection(
             ) {
                 Text(
                     modifier = Modifier.weight(1f),
-                    text = "Preview placeholder",
+                    text = "Local status",
                     color = ForgeInk,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.ExtraBold,
                 )
                 StatusChip(text = status, color = ForgeInk)
             }
+        }
+    }
+}
+
+@Composable
+private fun ReadOnlyBoundaryCard() {
+    RailCard(label = "Safety boundary") {
+        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Text(
+                text = "READ ONLY / NO EDIT / NO RUN",
+                color = ForgeGold,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.ExtraBold,
+            )
+            Text(
+                text = "This flow can list GitHub repos, browse folder contents, and preview readable files. It cannot modify files, commit, push, open a shell, install dependencies, or execute code.",
+                color = ForgePaper.copy(alpha = 0.76f),
+                fontSize = 11.sp,
+                lineHeight = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+    }
+}
+
+@Composable
+private fun EmptyStateCard(
+    title: String,
+    body: String,
+    state: String,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = ForgePaper.copy(alpha = 0.72f),
+        border = BorderStroke(1.dp, ForgeLine),
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    color = ForgeInk,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = body,
+                    color = ForgeMuted,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+            StatusChip(text = state, color = ForgeRust)
         }
     }
 }
@@ -2362,24 +2906,6 @@ private data class RunPlanStep(
     val color: Color,
 )
 
-private data class MockRepo(
-    val name: String,
-    val path: String,
-    val detail: String,
-    val branches: List<String>,
-    val state: String,
-    val initials: String,
-    val color: Color,
-)
-
-private data class MockFile(
-    val name: String,
-    val path: String,
-    val kind: String,
-    val mode: String,
-    val preview: String,
-)
-
 private fun AgentTaskDraft.isSameBriefAs(other: AgentTaskDraft): Boolean {
     return title == other.title &&
         goal == other.goal &&
@@ -2526,6 +3052,20 @@ private fun String.takePreviewWords(maxWords: Int): String {
     }
 }
 
+private fun String.repoInitials(): String {
+    val parts = split('-', '_', '.', ' ')
+        .mapNotNull { part -> part.firstOrNull()?.uppercaseChar()?.toString() }
+        .take(2)
+    return parts.joinToString("").ifBlank { take(2).uppercase() }
+}
+
+private fun String.fileKind(): String {
+    val extension = substringAfterLast('.', missingDelimiterValue = "")
+        .take(4)
+        .uppercase()
+    return extension.ifBlank { "TXT" }
+}
+
 private val DefaultAgentTaskDraft = AgentTaskDraft(
     title = "Add offline idea capture",
     goal = "Let me capture a coding idea on my phone, turn it into a scoped task, and hand it to a local agent later.",
@@ -2651,93 +3191,6 @@ private val ForgeRust = EpochCopper
 private val ForgePeach = Color(0xFFF1DED4)
 private val ForgeGold = EpochSignalGold
 private val ForgeBlue = Color(0xFFE1E8E7)
-
-private val MockRepos = listOf(
-    MockRepo(
-        name = "PocketForge",
-        path = "~/code/PocketForge",
-        detail = "Android app shell for a personal local coding agent. Branch state is mocked for the phone UI skeleton.",
-        branches = listOf("phase-1-ui", "main", "local-sandbox-spike"),
-        state = "Selected",
-        initials = "PF",
-        color = ForgeGold,
-    ),
-    MockRepo(
-        name = "Epoch Notes",
-        path = "~/code/epoch-notes",
-        detail = "Private markdown workspace used to test file browsing and brief handoffs from a phone.",
-        branches = listOf("main", "drafts"),
-        state = "Local",
-        initials = "EN",
-        color = ForgeSlate,
-    ),
-    MockRepo(
-        name = "Tiny Tools",
-        path = "~/code/tiny-tools",
-        detail = "Small scripts and utilities, useful for showing a dense but readable repo picker.",
-        branches = listOf("main", "mobile-inspect"),
-        state = "Local",
-        initials = "TT",
-        color = ForgeMint,
-    ),
-)
-
-private val MockFiles = listOf(
-    MockFile(
-        name = "MainActivity.kt",
-        path = "app/src/main/java/dev/pocketforge/app/MainActivity.kt",
-        kind = "KT",
-        mode = "Code",
-        preview = """
-            @Composable
-            private fun PocketForgeApp() {
-                // Phone-first shell:
-                // Chat -> Repos -> Files -> Build -> Settings
-                // Preview only; no command execution in Phase 1.
-            }
-        """.trimIndent(),
-    ),
-    MockFile(
-        name = "README.md",
-        path = "README.md",
-        kind = "MD",
-        mode = "Docs",
-        preview = """
-            # PocketForge
-
-            Personal-use Android coding agent shell.
-
-            Phase 1 makes the app feel real with local-first mock flows.
-            Phase 2 can add read-only GitHub and file browsing.
-        """.trimIndent(),
-    ),
-    MockFile(
-        name = "build-apk.yml",
-        path = ".github/workflows/build-apk.yml",
-        kind = "YML",
-        mode = "CI",
-        preview = """
-            name: Build debug APK
-
-            on:
-              workflow_dispatch:
-
-            # Optional artifact path; local phone sandbox remains the product center.
-        """.trimIndent(),
-    ),
-    MockFile(
-        name = "plan.md",
-        path = "plan.md",
-        kind = "MD",
-        mode = "Plan",
-        preview = """
-            ## Phase 1
-
-            Make the mock app feel like the real product:
-            chat, repo picker, file browser, brief handoff, and settings.
-        """.trimIndent(),
-    ),
-)
 
 @Preview(showBackground = true, widthDp = 360, heightDp = 780)
 @Composable
