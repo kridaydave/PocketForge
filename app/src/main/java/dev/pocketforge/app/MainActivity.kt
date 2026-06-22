@@ -294,36 +294,41 @@ private fun AgentChatScreen(onOpenBrief: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
-            text = "What should we change locally?",
+            text = "How should PocketForge change this local repo?",
             color = ForgeInk,
-            fontSize = 34.sp,
-            lineHeight = 36.sp,
+            fontSize = 32.sp,
+            lineHeight = 34.sp,
             fontWeight = FontWeight.Medium,
         )
         Text(
             modifier = Modifier.fillMaxWidth(0.9f),
-            text = "PocketForge is a phone-side coding agent preview: inspect context, shape a plan, and keep every run gated.",
+            text = "Chat is the home surface. Repos, files, checks, and permissions stay tucked into the composer and manifest until the local sandbox exists.",
             color = ForgeMuted,
             fontSize = 13.sp,
             lineHeight = 19.sp,
             fontWeight = FontWeight.Medium,
         )
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            StatusChip(text = "LOCAL", color = ForgeSlate)
+            StatusChip(text = "PREVIEW", color = ForgeRust)
+            StatusChip(text = "NO RUN", color = ForgeGold)
+        }
     }
 
     ChatMessageBubble(
         speaker = "You",
-        body = "Make the app feel like I can inspect a repo and hand a scoped task to a phone-side agent.",
+        body = "Make the app feel like I can inspect a repo and hand a scoped task to a phone-side agent, without pretending it ran.",
         mine = true,
     )
     ChatMessageBubble(
         speaker = "PocketForge",
-        body = "I can turn that into a local plan, map likely files, and wait for your review before any sandbox action.",
+        body = "I can draft a local plan manifest, name likely files, and stop at a permission gate before any sandbox action.",
         mine = false,
     )
     ToolActivityPanel()
     ChatMessageBubble(
         speaker = "PocketForge",
-        body = "Next handoff: promote this chat into a Build brief with repo, constraints, checks, and a clear stop point.",
+        body = "Next handoff: promote this chat into a Build brief with repo, constraints, checks, blocked details, and a clear stop point.",
         mine = false,
     )
 
@@ -340,6 +345,7 @@ private fun SessionTopBar(selectedTab: WorkbenchTab) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        StrataMark()
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = "PocketForge",
@@ -348,13 +354,42 @@ private fun SessionTopBar(selectedTab: WorkbenchTab) {
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = "Local sandbox preview",
+                text = "LOCAL / sandbox preview",
                 color = ForgeMuted,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Medium,
             )
         }
-        StatusChip(text = selectedTab.label, color = ForgeRust)
+        StatusChip(text = selectedTab.label.uppercase(), color = ForgeRust)
+    }
+}
+
+@Composable
+private fun StrataMark() {
+    Column(
+        modifier = Modifier.size(width = 30.dp, height = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(width = 25.dp, height = 3.dp)
+                .background(ForgeInk),
+        )
+        Box(
+            modifier = Modifier
+                .size(width = 30.dp, height = 3.dp)
+                .background(ForgeInk),
+        )
+        Box(
+            modifier = Modifier
+                .size(width = 22.dp, height = 3.dp)
+                .background(ForgeRust),
+        )
+        Box(
+            modifier = Modifier
+                .size(width = 28.dp, height = 3.dp)
+                .background(ForgeInk),
+        )
     }
 }
 
@@ -362,7 +397,7 @@ private fun SessionTopBar(selectedTab: WorkbenchTab) {
 private fun ProjectContextStrip() {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = CircleShape,
+        shape = MaterialTheme.shapes.medium,
         color = ForgePaper.copy(alpha = 0.62f),
         border = BorderStroke(1.dp, ForgeLine),
     ) {
@@ -375,11 +410,11 @@ private fun ProjectContextStrip() {
                 modifier = Modifier
                     .size(8.dp)
                     .clip(CircleShape)
-                    .background(ForgeTeal),
+                    .background(ForgeRust),
             )
             Text(
                 modifier = Modifier.weight(1f),
-                text = "PocketForge / phase-1-ui",
+                text = "manifest: PocketForge / phase-1-ui",
                 color = ForgeInk,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -387,7 +422,7 @@ private fun ProjectContextStrip() {
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = "Mock local context",
+                text = "PREVIEW CONTEXT",
                 color = ForgeMuted,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Medium,
@@ -400,7 +435,7 @@ private fun ProjectContextStrip() {
 private fun ChatComposer(onOpenBrief: () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(18.dp),
         color = ForgePaper,
         border = BorderStroke(1.dp, ForgeLine),
     ) {
@@ -408,8 +443,17 @@ private fun ChatComposer(onOpenBrief: () -> Unit) {
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                LabelText(text = "Local plan", dark = true)
+                Box(modifier = Modifier.weight(1f))
+                StatusChip(text = "NO RUN", color = ForgeRust)
+            }
             Text(
-                text = "Ask PocketForge to plan a local code change...",
+                text = "Ask PocketForge to draft a manifest...",
                 color = ForgeMuted,
                 fontSize = 14.sp,
                 lineHeight = 20.sp,
@@ -420,20 +464,21 @@ private fun ChatComposer(onOpenBrief: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                ComposerChip(text = "+ repo")
+                ComposerChip(text = "+")
+                ComposerChip(text = "repo")
                 ComposerChip(text = "files")
-                ComposerChip(text = "plan only")
+                ComposerChip(text = "style: local")
                 Button(
                     modifier = Modifier.weight(1f),
                     onClick = onOpenBrief,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = ForgeInk,
+                        containerColor = ForgeRust,
                         contentColor = ForgePaper,
                     ),
-                    shape = CircleShape,
+                    shape = MaterialTheme.shapes.medium,
                 ) {
                     Text(
-                        text = "Brief",
+                        text = "Build",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
@@ -441,7 +486,7 @@ private fun ChatComposer(onOpenBrief: () -> Unit) {
                 }
             }
             Text(
-                text = "Preview composer. No code runs from this screen.",
+                text = "Composer controls are preview affordances: attachments, context, and permission gate only.",
                 color = ForgeMuted.copy(alpha = 0.78f),
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Medium,
@@ -510,7 +555,7 @@ private fun ChatMessageBubble(
 private fun ToolActivityPanel() {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
+        shape = MaterialTheme.shapes.medium,
         color = ForgePaper.copy(alpha = 0.68f),
         border = BorderStroke(1.dp, ForgeLine),
     ) {
@@ -525,18 +570,33 @@ private fun ToolActivityPanel() {
             ) {
                 Text(
                     modifier = Modifier.weight(1f),
-                    text = "Local plan preview",
+                    text = "Proof object: local plan manifest",
                     color = ForgeInk,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
-                StatusChip(text = "No run", color = ForgeRust)
+                StatusChip(text = "NO RUN", color = ForgeRust)
             }
-            ToolActivityRow(step = "Map repo context", detail = "Preview row only", color = ForgeMint)
-            ToolActivityRow(step = "List likely files", detail = "Mock inspection plan", color = ForgeBlue)
-            ToolActivityRow(step = "Prepare patch plan", detail = "No execution in Phase 1", color = ForgeGold)
+            ToolActivityRow(
+                step = "Map repo context",
+                detail = "Preview row only",
+                state = "PREVIEW",
+                color = ForgeSlate,
+            )
+            ToolActivityRow(
+                step = "List likely files",
+                detail = "Mock local plan, not file access",
+                state = "MOCK",
+                color = ForgeGold,
+            )
+            ToolActivityRow(
+                step = "Prepare permission gate",
+                detail = "No execution in Phase 1",
+                state = "LOCAL PLAN",
+                color = ForgeRust,
+            )
             Text(
-                text = "These rows describe a future local workflow. They do not claim that files were read or code ran.",
+                text = "These rows describe a future local workflow. They do not claim that files were read, edited, or executed.",
                 color = ForgeMuted,
                 fontSize = 10.sp,
                 lineHeight = 14.sp,
@@ -550,6 +610,7 @@ private fun ToolActivityPanel() {
 private fun ToolActivityRow(
     step: String,
     detail: String,
+    state: String,
     color: Color,
 ) {
     Row(
@@ -577,7 +638,7 @@ private fun ToolActivityRow(
                 fontWeight = FontWeight.Medium,
             )
         }
-        StatusChip(text = "Preview", color = ForgeMuted)
+        StatusChip(text = state, color = color)
     }
 }
 
@@ -1333,19 +1394,19 @@ private fun RunPlanPreview(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Box(modifier = Modifier.weight(1f)) {
-                    LabelText(text = "Run plan preview", dark = false)
+                    LabelText(text = "Local plan manifest", dark = false)
                 }
                 StatusChip(text = readiness.label, color = readiness.color)
             }
             Text(
-                text = "Phone sandbox draft",
+                text = "Proof object draft",
                 color = ForgePaper,
                 fontSize = 23.sp,
                 lineHeight = 25.sp,
                 fontWeight = FontWeight.Medium,
             )
             Text(
-                text = "Preview only. This turns the brief into local workflow steps; it does not execute code yet.",
+                text = "Preview only. This turns the brief into manifest fields, likely files, checks, and a permission gate. It does not execute code.",
                 color = ForgePaper.copy(alpha = 0.72f),
                 fontSize = 12.sp,
                 lineHeight = 17.sp,
@@ -1363,7 +1424,7 @@ private fun RunPlanPreview(
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         Text(
-                            text = "Needs detail",
+                            text = "Blocked details",
                             color = ForgeGold,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.ExtraBold,
@@ -1380,7 +1441,7 @@ private fun RunPlanPreview(
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                PlanCell(modifier = Modifier.weight(1f), label = "Target", value = runPlan.target)
+                PlanCell(modifier = Modifier.weight(1f), label = "Manifest", value = runPlan.target)
                 PlanCell(modifier = Modifier.weight(1f), label = "Likely files", value = runPlan.likelyFiles)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1419,11 +1480,11 @@ private fun RunPlanPreview(
                 )
                 CompactPlanAction(
                     modifier = Modifier.weight(1f),
-                    text = if (readiness.label == "Ready") "Ready" else "Mark ready",
+                    text = if (markedReady) "Ready gate" else "Gate ready",
                     enabled = canUseReadyAction,
                     onClick = {
                         onMarkReady()
-                        actionMessage = "Marked ready for local sandbox planning."
+                        actionMessage = "Ready gate set for local sandbox planning."
                     },
                 )
             }
@@ -1476,13 +1537,13 @@ private fun RunPlanChecklistSection(
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
-                text = "Ready checklist",
+                text = "Ready gate",
                 color = ForgePaper,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.ExtraBold,
             )
             Text(
-                text = "Preview-only inspection before marking the brief ready.",
+                text = "Preview-only inspection before this brief can leave chat.",
                 color = ForgePaper.copy(alpha = 0.66f),
                 fontSize = 10.sp,
                 lineHeight = 14.sp,
@@ -1491,17 +1552,17 @@ private fun RunPlanChecklistSection(
             RunPlanChecklistRow(
                 checked = inspectedPlan,
                 onCheckedChange = onInspectedPlanChange,
-                label = "Inspect plan",
+                label = "Review manifest",
             )
             RunPlanChecklistRow(
                 checked = reviewedFiles,
                 onCheckedChange = onReviewedFilesChange,
-                label = "Review files",
+                label = "Review likely files",
             )
             RunPlanChecklistRow(
                 checked = reviewedChecks,
                 onCheckedChange = onReviewedChecksChange,
-                label = "Review checks",
+                label = "Review local checks",
             )
         }
     }
@@ -1557,20 +1618,20 @@ private fun RunPlanDetailsSection(runPlan: RunPlanPreviewModel) {
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Plan details",
+                        text = "Manifest fields",
                         color = ForgePaper,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.ExtraBold,
                     )
                     Text(
-                        text = "Files & checks before any sandbox run.",
+                        text = "Likely files, checks, and gate before sandbox work.",
                         color = ForgePaper.copy(alpha = 0.66f),
                         fontSize = 10.sp,
                         lineHeight = 14.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
-                StatusChip(text = "Inspect", color = ForgeGold)
+                StatusChip(text = "MANIFEST", color = ForgeGold)
             }
 
             RunPlanDetailRow(label = "Edit intent", value = runPlan.editIntent)
@@ -1580,7 +1641,7 @@ private fun RunPlanDetailsSection(runPlan: RunPlanPreviewModel) {
             RunPlanDetailRow(
                 label = "Blocking details",
                 value = if (runPlan.missingDetails.isEmpty()) {
-                    "None. This brief can be marked ready for local sandbox planning."
+                    "None. This brief can pass the ready gate for local sandbox planning."
                 } else {
                     "Add ${runPlan.missingDetails.joinToString()}."
                 },
@@ -1754,33 +1815,33 @@ private fun buildRunPlanPreview(
         missingDetails = missingDetails,
         steps = listOf(
             RunPlanStep(
-                title = "Inspect local repo",
-                detail = "Open $normalizedRepo, read status, and find files tied to ${normalizedTitle.takePreviewWords(maxWords = 5)}.",
-                state = "Local",
-                color = ForgeMint,
+                title = "Plan local context",
+                detail = "Preview opening $normalizedRepo, checking status, and finding files tied to ${normalizedTitle.takePreviewWords(maxWords = 5)}.",
+                state = "PREVIEW",
+                color = ForgeSlate,
             ),
             RunPlanStep(
                 title = "Choose likely files",
                 detail = "Start with $likelyFiles, then narrow by imports, UI state, and existing helpers.",
-                state = "Map",
-                color = ForgeBlue,
-            ),
-            RunPlanStep(
-                title = "Make smallest edit",
-                detail = normalizedGoal.takePreviewWords(maxWords = 14),
-                state = "Patch",
+                state = "MANIFEST",
                 color = ForgeGold,
             ),
             RunPlanStep(
-                title = "Run phone-safe checks",
+                title = "Draft smallest edit",
+                detail = normalizedGoal.takePreviewWords(maxWords = 14),
+                state = "LOCAL PLAN",
+                color = ForgeRust,
+            ),
+            RunPlanStep(
+                title = "List phone-safe checks",
                 detail = checks,
-                state = "Check",
-                color = ForgeTeal,
+                state = "NO RUN",
+                color = ForgeSlate,
             ),
             RunPlanStep(
                 title = "Summarize for you",
                 detail = normalizedOutput.takePreviewWords(maxWords = 14),
-                state = "Review",
+                state = "GATE",
                 color = ForgePeach,
             ),
         ),
@@ -1798,9 +1859,9 @@ private fun buildRunPlanCopy(
     }
 
     return buildString {
-        appendLine("PocketForge Run Plan")
+        appendLine("PocketForge Local Plan Manifest")
         appendLine("Status: $readinessLabel")
-        appendLine("Mode: Preview only, local phone sandbox planning")
+        appendLine("Mode: Preview only, no code execution")
         appendLine()
         appendLine("Target: ${runPlan.target}")
         appendLine("Likely files: ${runPlan.likelyFiles}")
@@ -2344,9 +2405,9 @@ private fun readinessStatus(
     markedReady: Boolean,
 ): BriefReadinessStatus {
     return when {
-        missingDetails.isNotEmpty() -> BriefReadinessStatus(label = "Needs detail", color = ForgeGold)
-        markedReady -> BriefReadinessStatus(label = "Ready", color = ForgeTeal)
-        else -> BriefReadinessStatus(label = "Draft", color = ForgeBlue)
+        missingDetails.isNotEmpty() -> BriefReadinessStatus(label = "BLOCKED", color = ForgeGold)
+        markedReady -> BriefReadinessStatus(label = "READY GATE", color = ForgeSlate)
+        else -> BriefReadinessStatus(label = "LOCAL PLAN", color = ForgeRust)
     }
 }
 
@@ -2564,21 +2625,32 @@ private fun SharedPreferences.saveRecentAgentBriefs(briefs: List<AgentTaskDraft>
         .apply()
 }
 
-private val ForgeInk = Color(0xFF111412)
-private val ForgeCanvas = Color(0xFFE9E3D6)
-private val ForgePaper = Color(0xFFFBF8EF)
-private val ForgeMuted = Color(0xFF616963)
-private val ForgeLine = Color(0x29111412)
+private val EpochInk = Color(0xFF171714)
+private val EpochUiInk = Color(0xFF111412)
+private val EpochBone = Color(0xFFF2EFE7)
+private val EpochField = Color(0xFFE9E3D6)
+private val EpochPaper = Color(0xFFFBF8EF)
+private val EpochMuted = Color(0xFF616963)
+private val EpochCopper = Color(0xFFA64B2A)
+private val EpochMineral = Color(0xFF60727A)
+private val EpochSignalGold = Color(0xFFD8B35D)
+private val EpochMoss = Color(0xFF69755E)
+
+private val ForgeInk = EpochUiInk
+private val ForgeCanvas = EpochBone
+private val ForgePaper = EpochPaper
+private val ForgeMuted = EpochMuted
+private val ForgeLine = Color(0x29171414)
 private val ForgeLineLight = Color(0x30FBF8EF)
-private val ForgeGreen = Color(0xFF16352D)
-private val ForgeGraphite = Color(0xFF171714)
-private val ForgeSlate = Color(0xFF60727A)
-private val ForgeTeal = Color(0xFF1F8A66)
-private val ForgeMint = Color(0xFFD8F1E8)
-private val ForgeRust = Color(0xFFA64B2A)
-private val ForgePeach = Color(0xFFF8DECF)
-private val ForgeGold = Color(0xFFD8B35D)
-private val ForgeBlue = Color(0xFFDFE8FF)
+private val ForgeGreen = EpochMoss
+private val ForgeGraphite = EpochInk
+private val ForgeSlate = EpochMineral
+private val ForgeTeal = EpochMineral
+private val ForgeMint = Color(0xFFE7E8DE)
+private val ForgeRust = EpochCopper
+private val ForgePeach = Color(0xFFF1DED4)
+private val ForgeGold = EpochSignalGold
+private val ForgeBlue = Color(0xFFE1E8E7)
 
 private val MockRepos = listOf(
     MockRepo(
