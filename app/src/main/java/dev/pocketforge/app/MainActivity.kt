@@ -17,10 +17,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -49,8 +51,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -425,8 +432,8 @@ private fun PocketForgeApp(
                     modifier = Modifier
                         .weight(1f)
                         .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 18.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(18.dp),
+                        .padding(horizontal = 18.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
                     when (selectedTab) {
                         WorkbenchTab.Chat -> AgentChatScreen(
@@ -593,13 +600,18 @@ private fun SessionTopBar(selectedTab: WorkbenchTab) {
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = "LOCAL / sandbox preview",
+                text = "Local read-only sandbox",
                 color = ForgeMuted,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Medium,
             )
         }
-        StatusChip(text = selectedTab.label.uppercase(), color = ForgeRust)
+        Text(
+            text = selectedTab.label,
+            color = ForgeRust,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.ExtraBold,
+        )
     }
 }
 
@@ -1245,15 +1257,19 @@ private fun FilePreviewPanel(
     loading: Boolean,
     error: String,
 ) {
+    val canFormatMarkdown = file?.isMarkdownFile() == true && !file.tooLarge && !file.binary
+    var formattedMarkdown by remember(file?.path) { mutableStateOf(canFormatMarkdown) }
+    val showFormattedMarkdown = canFormatMarkdown && formattedMarkdown
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
+        shape = MaterialTheme.shapes.medium,
         color = ForgeInk,
         border = BorderStroke(1.dp, ForgeLineLight),
     ) {
         Column(
-            modifier = Modifier.padding(15.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1276,46 +1292,243 @@ private fun FilePreviewPanel(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+                if (canFormatMarkdown) {
+                    TextButton(
+                        onClick = { formattedMarkdown = !formattedMarkdown },
+                    ) {
+                        Text(
+                            text = if (showFormattedMarkdown) "Eye Raw" else "Eye Formatted",
+                            color = ForgeGold,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                        )
+                    }
+                }
                 StatusChip(text = "NO EDIT", color = ForgeGold)
             }
-            Text(
-                text = file?.path ?: "Text, Markdown, and code previews appear here.",
-                color = ForgePaper.copy(alpha = 0.58f),
-                fontSize = 10.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.medium,
-                color = ForgeGraphite,
-                border = BorderStroke(1.dp, ForgeLineLight),
-            ) {
-                Text(
-                    modifier = Modifier.padding(12.dp),
-                    text = when {
-                        loading -> "Reading file content from GitHub..."
-                        error.isNotBlank() -> error
-                        file == null -> "No file selected."
-                        file.tooLarge -> "File is larger than the PocketForge preview limit. It was not downloaded into the viewer."
-                        file.binary -> "This file is binary or not valid UTF-8, so PocketForge will not preview it as text."
-                        else -> file.content
-                    },
-                    color = ForgePaper,
-                    fontSize = 11.sp,
-                    lineHeight = 16.sp,
-                    fontWeight = FontWeight.Medium,
+            FileMetadataStrip(file = file, formattedMarkdown = showFormattedMarkdown)
+
+            when {
+                loading -> PreviewMessage("Reading file content from GitHub...")
+                error.isNotBlank() -> PreviewMessage(error)
+                file == null -> PreviewMessage("No file selected. Text, Markdown, and code previews appear here.")
+                file.tooLarge -> PreviewMessage(
+                    "File is larger than the PocketForge preview limit (${MAX_PREVIEW_SIZE_LABEL}). It was not downloaded into the viewer.",
+                )
+                file.binary -> PreviewMessage(
+                    "This file is binary or not valid UTF-8, so PocketForge will not preview it as text.",
+                )
+                showFormattedMarkdown -> MarkdownPreview(content = file.content)
+                else -> CodePreview(
+                    content = file.content,
+                    fileName = file.name,
+                    showLineNumbers = file.content.lineCount() > 1,
                 )
             }
             Text(
-                text = "READ ONLY. No edit, save, commit, push, shell, install, or execution controls exist in this flow.",
+                text = "READ ONLY / NO EDIT / NO RUN. No save, commit, push, shell, install, or execution controls exist in this flow.",
                 color = ForgePaper.copy(alpha = 0.64f),
                 fontSize = 10.sp,
                 lineHeight = 14.sp,
                 fontWeight = FontWeight.SemiBold,
             )
         }
+    }
+}
+
+@Composable
+private fun FileMetadataStrip(
+    file: GitHubFilePreview?,
+    formattedMarkdown: Boolean,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            StatusChip(
+                text = when {
+                    file == null -> "Viewer"
+                    formattedMarkdown -> "Markdown"
+                    else -> file.mode
+                },
+                color = ForgeGold,
+            )
+            StatusChip(
+                text = file?.sizeBytes?.formatBytes() ?: "0 B",
+                color = ForgePaper,
+            )
+            StatusChip(
+                text = if (formattedMarkdown) "Formatted" else "Raw",
+                color = ForgeSlate,
+            )
+        }
+        Text(
+            text = file?.path ?: "Select a readable file to inspect source safely.",
+            color = ForgePaper.copy(alpha = 0.58f),
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun PreviewMessage(message: String) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = ForgeGraphite,
+        border = BorderStroke(1.dp, ForgeLineLight),
+    ) {
+        Text(
+            modifier = Modifier.padding(13.dp),
+            text = message,
+            color = ForgePaper,
+            fontSize = 12.sp,
+            lineHeight = 17.sp,
+            fontWeight = FontWeight.Medium,
+        )
+    }
+}
+
+@Composable
+private fun CodePreview(
+    content: String,
+    fileName: String,
+    showLineNumbers: Boolean,
+) {
+    val lines = remember(content) { content.lines().ifEmpty { listOf("") } }
+    val lineNumbers = remember(lines) {
+        lines.indices.joinToString(separator = "\n") { index -> (index + 1).toString() }
+    }
+    val highlightedContent = remember(content, fileName) {
+        highlightSource(content = content, fileName = fileName)
+    }
+    val horizontalScroll = rememberScrollState()
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = ForgeGraphite,
+        border = BorderStroke(1.dp, ForgeLineLight),
+    ) {
+        Row(
+            modifier = Modifier.padding(vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (showLineNumbers) {
+                Text(
+                    modifier = Modifier
+                        .width(38.dp)
+                        .padding(start = 8.dp),
+                    text = lineNumbers,
+                    color = ForgePaper.copy(alpha = 0.34f),
+                    fontSize = 11.sp,
+                    lineHeight = 18.sp,
+                    fontFamily = FontFamily.Monospace,
+                    textAlign = TextAlign.End,
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .horizontalScroll(horizontalScroll),
+            ) {
+                Text(
+                    modifier = Modifier.padding(end = 14.dp),
+                    text = highlightedContent,
+                    color = ForgePaper,
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp,
+                    fontFamily = FontFamily.Monospace,
+                    softWrap = false,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MarkdownPreview(content: String) {
+    val blocks = remember(content) { parseMarkdown(content) }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = ForgePaper,
+        border = BorderStroke(1.dp, ForgeLineLight),
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            blocks.ifEmpty { listOf(MarkdownBlock.Paragraph("Empty Markdown file.")) }
+                .forEach { block ->
+                    when (block) {
+                        is MarkdownBlock.Heading -> MarkdownHeading(block)
+                        is MarkdownBlock.Paragraph -> MarkdownParagraph(block.text)
+                        is MarkdownBlock.Bullet -> MarkdownListItem(marker = "-", text = block.text)
+                        is MarkdownBlock.Numbered -> MarkdownListItem(marker = "${block.number}.", text = block.text)
+                        is MarkdownBlock.Code -> CodePreview(
+                            content = block.code,
+                            fileName = block.language.ifBlank { "markdown-code.txt" },
+                            showLineNumbers = false,
+                        )
+                    }
+                }
+        }
+    }
+}
+
+@Composable
+private fun MarkdownHeading(block: MarkdownBlock.Heading) {
+    Text(
+        text = block.text,
+        color = ForgeInk,
+        fontSize = when (block.level) {
+            1 -> 23.sp
+            2 -> 19.sp
+            else -> 16.sp
+        },
+        lineHeight = when (block.level) {
+            1 -> 27.sp
+            2 -> 23.sp
+            else -> 20.sp
+        },
+        fontWeight = FontWeight.SemiBold,
+    )
+}
+
+@Composable
+private fun MarkdownParagraph(text: String) {
+    Text(
+        text = markdownInlineText(text),
+        color = ForgeInk,
+        fontSize = 13.sp,
+        lineHeight = 20.sp,
+        fontWeight = FontWeight.Medium,
+    )
+}
+
+@Composable
+private fun MarkdownListItem(marker: String, text: String) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            modifier = Modifier.width(26.dp),
+            text = marker,
+            color = ForgeRust,
+            fontSize = 13.sp,
+            lineHeight = 20.sp,
+            fontWeight = FontWeight.ExtraBold,
+            textAlign = TextAlign.End,
+        )
+        Text(
+            modifier = Modifier.weight(1f),
+            text = markdownInlineText(text),
+            color = ForgeInk,
+            fontSize = 13.sp,
+            lineHeight = 20.sp,
+            fontWeight = FontWeight.Medium,
+        )
     }
 }
 
@@ -1472,21 +1685,40 @@ private fun SettingsSection(
 
 @Composable
 private fun ReadOnlyBoundaryCard() {
-    RailCard(label = "Safety boundary") {
-        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            Text(
-                text = "READ ONLY / NO EDIT / NO RUN",
-                color = ForgeGold,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.ExtraBold,
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = ForgePaper.copy(alpha = 0.56f),
+        border = BorderStroke(1.dp, ForgeLine),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 13.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(11.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(width = 4.dp, height = 36.dp)
+                    .background(ForgeGold),
             )
-            Text(
-                text = "This flow can list GitHub repos, browse folder contents, and preview readable files. It cannot modify files, commit, push, open a shell, install dependencies, or execute code.",
-                color = ForgePaper.copy(alpha = 0.76f),
-                fontSize = 11.sp,
-                lineHeight = 16.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = "READ ONLY / NO EDIT / NO RUN",
+                    color = ForgeRust,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+                Text(
+                    text = "Browse and preview only. No edits, commits, pushes, shells, installs, or execution.",
+                    color = ForgeMuted,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
         }
     }
 }
@@ -2434,6 +2666,270 @@ private fun buildRunPlanCopy(
     }.trim()
 }
 
+private sealed class MarkdownBlock {
+    data class Heading(val level: Int, val text: String) : MarkdownBlock()
+    data class Paragraph(val text: String) : MarkdownBlock()
+    data class Bullet(val text: String) : MarkdownBlock()
+    data class Numbered(val number: Int, val text: String) : MarkdownBlock()
+    data class Code(val language: String, val code: String) : MarkdownBlock()
+}
+
+private data class HighlightRule(
+    val regex: Regex,
+    val style: SpanStyle,
+)
+
+private data class HighlightSpan(
+    val range: IntRange,
+    val style: SpanStyle,
+)
+
+private enum class SourceKind {
+    KotlinLike,
+    Xml,
+    Data,
+    Plain,
+}
+
+private fun GitHubFilePreview.isMarkdownFile(): Boolean {
+    val extension = name.substringAfterLast('.', missingDelimiterValue = "").lowercase()
+    return extension == "md" || extension == "markdown"
+}
+
+private fun Long.formatBytes(): String {
+    return when {
+        this < 1_024L -> "$this B"
+        this < 1_024L * 1_024L -> "${this / 1_024L} KB"
+        else -> "${this / (1_024L * 1_024L)} MB"
+    }
+}
+
+private fun String.lineCount(): Int {
+    if (isEmpty()) return 1
+    return count { it == '\n' } + 1
+}
+
+private fun parseMarkdown(markdown: String): List<MarkdownBlock> {
+    val lines = markdown.replace("\r\n", "\n").split("\n")
+    val blocks = mutableListOf<MarkdownBlock>()
+    var index = 0
+
+    while (index < lines.size) {
+        val line = lines[index]
+        val trimmed = line.trim()
+
+        when {
+            trimmed.isBlank() -> index += 1
+
+            trimmed.startsWith(MARKDOWN_FENCE) -> {
+                val language = trimmed.removePrefix(MARKDOWN_FENCE).trim()
+                val codeLines = mutableListOf<String>()
+                index += 1
+                while (index < lines.size && !lines[index].trim().startsWith(MARKDOWN_FENCE)) {
+                    codeLines += lines[index]
+                    index += 1
+                }
+                if (index < lines.size) index += 1
+                blocks += MarkdownBlock.Code(language = language, code = codeLines.joinToString("\n"))
+            }
+
+            MarkdownHeadingRegex.matches(trimmed) -> {
+                val match = MarkdownHeadingRegex.find(trimmed)
+                if (match != null) {
+                    blocks += MarkdownBlock.Heading(
+                        level = match.groupValues[1].length.coerceIn(1, 6),
+                        text = match.groupValues[2].trim(),
+                    )
+                }
+                index += 1
+            }
+
+            MarkdownBulletRegex.matches(trimmed) -> {
+                val text = MarkdownBulletRegex.find(trimmed)?.groupValues?.get(1).orEmpty()
+                blocks += MarkdownBlock.Bullet(text = text.trim())
+                index += 1
+            }
+
+            MarkdownNumberedRegex.matches(trimmed) -> {
+                val match = MarkdownNumberedRegex.find(trimmed)
+                blocks += MarkdownBlock.Numbered(
+                    number = match?.groupValues?.get(1)?.toIntOrNull() ?: 1,
+                    text = match?.groupValues?.get(2)?.trim().orEmpty(),
+                )
+                index += 1
+            }
+
+            else -> {
+                val paragraphLines = mutableListOf(trimmed)
+                index += 1
+                while (index < lines.size && !startsMarkdownBlock(lines[index].trim())) {
+                    paragraphLines += lines[index].trim()
+                    index += 1
+                }
+                blocks += MarkdownBlock.Paragraph(paragraphLines.joinToString(" ").trim())
+            }
+        }
+    }
+
+    return blocks
+}
+
+private fun startsMarkdownBlock(trimmedLine: String): Boolean {
+    return trimmedLine.isBlank() ||
+        trimmedLine.startsWith(MARKDOWN_FENCE) ||
+        MarkdownHeadingRegex.matches(trimmedLine) ||
+        MarkdownBulletRegex.matches(trimmedLine) ||
+        MarkdownNumberedRegex.matches(trimmedLine)
+}
+
+private fun markdownInlineText(text: String): AnnotatedString {
+    return buildAnnotatedString {
+        var cursor = 0
+        while (cursor < text.length) {
+            val open = text.indexOf('`', startIndex = cursor)
+            if (open < 0) {
+                append(text.substring(cursor))
+                cursor = text.length
+            } else {
+                append(text.substring(cursor, open))
+                val close = text.indexOf('`', startIndex = open + 1)
+                if (close < 0) {
+                    append(text.substring(open))
+                    cursor = text.length
+                } else {
+                    withStyle(inlineCodeStyle()) {
+                        append(text.substring(open + 1, close))
+                    }
+                    cursor = close + 1
+                }
+            }
+        }
+    }
+}
+
+private fun highlightSource(content: String, fileName: String): AnnotatedString {
+    val kind = fileName.sourceKind()
+    val lines = content.lines().ifEmpty { listOf("") }
+
+    return buildAnnotatedString {
+        lines.forEachIndexed { index, line ->
+            if (index > 0) append('\n')
+            appendHighlightedLine(line = line, rules = highlightRules(kind))
+        }
+    }
+}
+
+private fun String.sourceKind(): SourceKind {
+    val lowerName = lowercase()
+    val extension = substringAfterLast('.', missingDelimiterValue = "").lowercase()
+
+    return when {
+        lowerName in setOf("kotlin", "java", "kt", "kts", "gradle", "groovy", "bash", "sh") ||
+            lowerName.endsWith(".gradle") ||
+            extension in setOf("kt", "kts", "java", "gradle", "sh") -> SourceKind.KotlinLike
+        lowerName in setOf("xml", "html") || extension == "xml" -> SourceKind.Xml
+        lowerName in setOf("json", "yml", "yaml", "toml") ||
+            extension in setOf("json", "yml", "yaml", "toml") -> SourceKind.Data
+        else -> SourceKind.Plain
+    }
+}
+
+private fun AnnotatedString.Builder.appendHighlightedLine(
+    line: String,
+    rules: List<HighlightRule>,
+) {
+    if (line.isEmpty() || rules.isEmpty()) {
+        append(line)
+        return
+    }
+
+    val spans = mutableListOf<HighlightSpan>()
+    rules.forEach { rule ->
+        rule.regex.findAll(line).forEach { match ->
+            val range = match.range
+            if (range.first <= range.last && spans.none { it.range.overlaps(range) }) {
+                spans += HighlightSpan(range = range, style = rule.style)
+            }
+        }
+    }
+
+    var cursor = 0
+    spans.sortedBy { it.range.first }.forEach { span ->
+        if (cursor < span.range.first) {
+            append(line.substring(cursor, span.range.first))
+        }
+        withStyle(span.style) {
+            append(line.substring(span.range.first, span.range.last + 1))
+        }
+        cursor = span.range.last + 1
+    }
+    if (cursor < line.length) {
+        append(line.substring(cursor))
+    }
+}
+
+private fun IntRange.overlaps(other: IntRange): Boolean {
+    return first <= other.last && other.first <= last
+}
+
+private fun highlightRules(kind: SourceKind): List<HighlightRule> {
+    return when (kind) {
+        SourceKind.KotlinLike -> listOf(
+            HighlightRule(KotlinCommentRegex, codeCommentStyle()),
+            HighlightRule(QuotedStringRegex, codeStringStyle()),
+            HighlightRule(KotlinAnnotationRegex, codeAnnotationStyle()),
+            HighlightRule(KotlinKeywordRegex, codeKeywordStyle()),
+            HighlightRule(NumberRegex, codeNumberStyle()),
+        )
+
+        SourceKind.Xml -> listOf(
+            HighlightRule(XmlCommentRegex, codeCommentStyle()),
+            HighlightRule(QuotedStringRegex, codeStringStyle()),
+            HighlightRule(XmlTagRegex, codeKeywordStyle()),
+            HighlightRule(XmlAttributeRegex, codeAnnotationStyle()),
+        )
+
+        SourceKind.Data -> listOf(
+            HighlightRule(DataCommentRegex, codeCommentStyle()),
+            HighlightRule(DataKeyRegex, codeAnnotationStyle()),
+            HighlightRule(QuotedStringRegex, codeStringStyle()),
+            HighlightRule(DataKeywordRegex, codeKeywordStyle()),
+            HighlightRule(NumberRegex, codeNumberStyle()),
+        )
+
+        SourceKind.Plain -> emptyList()
+    }
+}
+
+private fun codeKeywordStyle(): SpanStyle {
+    return SpanStyle(color = ForgeGold, fontWeight = FontWeight.SemiBold)
+}
+
+private fun codeStringStyle(): SpanStyle {
+    return SpanStyle(color = ForgeMint)
+}
+
+private fun codeCommentStyle(): SpanStyle {
+    return SpanStyle(color = ForgePaper.copy(alpha = 0.46f), fontWeight = FontWeight.Medium)
+}
+
+private fun codeAnnotationStyle(): SpanStyle {
+    return SpanStyle(color = ForgePeach, fontWeight = FontWeight.SemiBold)
+}
+
+private fun codeNumberStyle(): SpanStyle {
+    return SpanStyle(color = ForgeBlue, fontWeight = FontWeight.SemiBold)
+}
+
+private fun inlineCodeStyle(): SpanStyle {
+    return SpanStyle(
+        color = ForgeRust,
+        background = ForgeMint,
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.SemiBold,
+    )
+}
+
 @Composable
 private fun QueueRow(
     badge: String,
@@ -2802,35 +3298,43 @@ private fun BottomWorkbenchTabs(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-        shape = CircleShape,
-        color = ForgePaper.copy(alpha = 0.9f),
-        border = BorderStroke(1.dp, ForgeLine),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        color = ForgeCanvas,
     ) {
         Row(
-            modifier = Modifier.padding(6.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.padding(horizontal = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
         ) {
             WorkbenchTab.entries.forEach { tab ->
                 val selected = tab == selectedTab
-                Column(
+                Surface(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(CircleShape)
-                        .clickable { onTabSelected(tab) }
-                        .background(if (selected) ForgeInk else Color.Transparent)
-                        .padding(vertical = 8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                        .clip(MaterialTheme.shapes.medium)
+                        .clickable { onTabSelected(tab) },
+                    shape = MaterialTheme.shapes.medium,
+                    color = if (selected) ForgeInk else Color.Transparent,
+                    border = BorderStroke(1.dp, if (selected) ForgeLineLight else Color.Transparent),
                 ) {
-                    Text(
-                        text = tab.label,
-                        color = if (selected) ForgePaper else ForgeInk.copy(alpha = 0.58f),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Column(
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(5.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(width = 18.dp, height = 2.dp)
+                                .background(if (selected) ForgeGold else Color.Transparent),
+                        )
+                        Text(
+                            text = tab.label,
+                            color = if (selected) ForgePaper else ForgeInk.copy(alpha = 0.56f),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
         }
@@ -2865,11 +3369,11 @@ private fun PocketForgeTheme(content: @Composable () -> Unit) {
 private enum class WorkbenchTab(
     val label: String,
 ) {
-    Chat("Chat"),
+    Chat("Ask"),
     Repos("Repos"),
     Files("Files"),
-    Build("Build"),
-    Settings("Settings"),
+    Build("Plan"),
+    Settings("Setup"),
 }
 
 private data class AgentTaskDraft(
@@ -3091,12 +3595,30 @@ private const val PREF_TASK_OUTPUT = "task_output"
 private const val PREF_TASK_MARKED_READY = "task_marked_ready"
 private const val PREF_RECENT_BRIEFS = "recent_briefs"
 private const val MAX_RECENT_BRIEFS = 5
+private const val MAX_PREVIEW_SIZE_LABEL = "240 KB"
 private const val JSON_TITLE = "title"
 private const val JSON_GOAL = "goal"
 private const val JSON_REPO = "repo"
 private const val JSON_CONSTRAINTS = "constraints"
 private const val JSON_OUTPUT = "output"
 private const val JSON_MARKED_READY = "markedReady"
+private const val MARKDOWN_FENCE = "```"
+private val MarkdownHeadingRegex = Regex("^(#{1,6})\\s+(.+)$")
+private val MarkdownBulletRegex = Regex("^[-*+]\\s+(.+)$")
+private val MarkdownNumberedRegex = Regex("^(\\d+)\\.\\s+(.+)$")
+private val KotlinCommentRegex = Regex("//.*$|#.*$")
+private val DataCommentRegex = Regex("#.*$")
+private val XmlCommentRegex = Regex("<!--.*?-->")
+private val QuotedStringRegex = Regex("\"[^\"]*\"|'[^']*'")
+private val KotlinAnnotationRegex = Regex("@[A-Za-z_][A-Za-z0-9_]*")
+private val KotlinKeywordRegex = Regex(
+    "\\b(package|import|class|interface|object|data|sealed|private|internal|public|fun|val|var|return|when|if|else|for|while|try|catch|finally|throw|true|false|null|override|abstract|open|const|companion|new|static|void|int|long|float|double|boolean|String)\\b",
+)
+private val NumberRegex = Regex("\\b\\d+(?:\\.\\d+)?\\b")
+private val XmlTagRegex = Regex("</?[A-Za-z_][\\w:.-]*|/?>")
+private val XmlAttributeRegex = Regex("\\b[A-Za-z_:][\\w:.-]*(?=\\=)")
+private val DataKeyRegex = Regex("\"[^\"]+\"(?=\\s*:)|\\b[A-Za-z_][\\w.-]*(?=\\s*[:=])")
+private val DataKeywordRegex = Regex("\\b(true|false|null)\\b")
 
 private fun SharedPreferences.loadAgentTaskDraft(): AgentTaskDraft {
     return AgentTaskDraft(

@@ -167,6 +167,7 @@ internal class GitHubReadOnlyClient {
             return GitHubFilePreview(
                 name = item.name,
                 path = item.path,
+                sizeBytes = item.size,
                 content = "",
                 mode = "Folder",
                 tooLarge = false,
@@ -178,6 +179,7 @@ internal class GitHubReadOnlyClient {
             return GitHubFilePreview(
                 name = item.name,
                 path = item.path,
+                sizeBytes = item.size,
                 content = "",
                 mode = "Too large",
                 tooLarge = true,
@@ -197,6 +199,7 @@ internal class GitHubReadOnlyClient {
             return GitHubFilePreview(
                 name = item.name,
                 path = item.path,
+                sizeBytes = item.size,
                 content = "",
                 mode = "Not previewable",
                 tooLarge = false,
@@ -210,6 +213,7 @@ internal class GitHubReadOnlyClient {
             GitHubFilePreview(
                 name = item.name,
                 path = item.path,
+                sizeBytes = item.size,
                 content = "",
                 mode = "Binary",
                 tooLarge = false,
@@ -219,6 +223,7 @@ internal class GitHubReadOnlyClient {
             GitHubFilePreview(
                 name = item.name,
                 path = item.path,
+                sizeBytes = item.size,
                 content = decodedText,
                 mode = inferPreviewMode(item.name),
                 tooLarge = false,
@@ -312,6 +317,7 @@ internal data class GitHubContentItem(
 internal data class GitHubFilePreview(
     val name: String,
     val path: String,
+    val sizeBytes: Long,
     val content: String,
     val mode: String,
     val tooLarge: Boolean,
