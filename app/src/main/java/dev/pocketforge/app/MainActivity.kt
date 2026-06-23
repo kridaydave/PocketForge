@@ -1297,7 +1297,7 @@ private fun FilePreviewPanel(
                         onClick = { formattedMarkdown = !formattedMarkdown },
                     ) {
                         Text(
-                            text = if (showFormattedMarkdown) "Eye Raw" else "Eye Formatted",
+                            text = if (showFormattedMarkdown) "$EYE_EMOJI Raw" else "$EYE_EMOJI Formatted",
                             color = ForgeGold,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.ExtraBold,
@@ -1436,7 +1436,7 @@ private fun CodePreview(
                 Text(
                     modifier = Modifier.padding(end = 14.dp),
                     text = highlightedContent,
-                    color = ForgePaper,
+                    color = EpochBone,
                     fontSize = 12.sp,
                     lineHeight = 18.sp,
                     fontFamily = FontFamily.Monospace,
@@ -1473,6 +1473,7 @@ private fun MarkdownPreview(content: String) {
                             fileName = block.language.ifBlank { "markdown-code.txt" },
                             showLineNumbers = false,
                         )
+                        is MarkdownBlock.Table -> MarkdownTable(block)
                     }
                 }
         }
@@ -1529,6 +1530,72 @@ private fun MarkdownListItem(marker: String, text: String) {
             lineHeight = 20.sp,
             fontWeight = FontWeight.Medium,
         )
+    }
+}
+
+@Composable
+private fun MarkdownTable(block: MarkdownBlock.Table) {
+    val horizontalScroll = rememberScrollState()
+    val columns = block.headers.size.coerceAtLeast(
+        block.rows.maxOfOrNull { row -> row.size } ?: 1,
+    )
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(horizontalScroll),
+        shape = MaterialTheme.shapes.medium,
+        color = ForgePaper,
+        border = BorderStroke(1.dp, ForgeLine),
+    ) {
+        Column {
+            MarkdownTableRow(
+                cells = block.headers,
+                columns = columns,
+                header = true,
+            )
+            block.rows.forEachIndexed { index, row ->
+                MarkdownTableRow(
+                    cells = row,
+                    columns = columns,
+                    header = false,
+                    shaded = index % 2 == 1,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MarkdownTableRow(
+    cells: List<String>,
+    columns: Int,
+    header: Boolean,
+    shaded: Boolean = false,
+) {
+    Row(
+        modifier = Modifier.background(
+            when {
+                header -> ForgeMint
+                shaded -> EpochField.copy(alpha = 0.52f)
+                else -> ForgePaper
+            },
+        ),
+    ) {
+        repeat(columns) { columnIndex ->
+            Text(
+                modifier = Modifier
+                    .width(128.dp)
+                    .padding(horizontal = 9.dp, vertical = 8.dp),
+                text = markdownInlineText(cells.getOrNull(columnIndex).orEmpty()),
+                color = ForgeInk,
+                fontSize = 11.sp,
+                lineHeight = 16.sp,
+                fontWeight = if (header) FontWeight.ExtraBold else FontWeight.Medium,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -2672,6 +2739,7 @@ private sealed class MarkdownBlock {
     data class Bullet(val text: String) : MarkdownBlock()
     data class Numbered(val number: Int, val text: String) : MarkdownBlock()
     data class Code(val language: String, val code: String) : MarkdownBlock()
+    data class Table(val headers: List<String>, val rows: List<List<String>>) : MarkdownBlock()
 }
 
 private data class HighlightRule(
@@ -2733,6 +2801,17 @@ private fun parseMarkdown(markdown: String): List<MarkdownBlock> {
                 blocks += MarkdownBlock.Code(language = language, code = codeLines.joinToString("\n"))
             }
 
+            isMarkdownTableStart(lines, index) -> {
+                val headers = parseMarkdownTableCells(lines[index])
+                val tableRows = mutableListOf<List<String>>()
+                index += 2
+                while (index < lines.size && isMarkdownTableRow(lines[index])) {
+                    tableRows += parseMarkdownTableCells(lines[index])
+                    index += 1
+                }
+                blocks += MarkdownBlock.Table(headers = headers, rows = tableRows)
+            }
+
             MarkdownHeadingRegex.matches(trimmed) -> {
                 val match = MarkdownHeadingRegex.find(trimmed)
                 if (match != null) {
@@ -2777,9 +2856,31 @@ private fun parseMarkdown(markdown: String): List<MarkdownBlock> {
 private fun startsMarkdownBlock(trimmedLine: String): Boolean {
     return trimmedLine.isBlank() ||
         trimmedLine.startsWith(MARKDOWN_FENCE) ||
+        trimmedLine.contains('|') ||
         MarkdownHeadingRegex.matches(trimmedLine) ||
         MarkdownBulletRegex.matches(trimmedLine) ||
         MarkdownNumberedRegex.matches(trimmedLine)
+}
+
+private fun isMarkdownTableStart(lines: List<String>, index: Int): Boolean {
+    if (index + 1 >= lines.size) return false
+    val header = lines[index].trim()
+    val divider = lines[index + 1].trim()
+    return isMarkdownTableRow(header) &&
+        header.count { it == '|' } >= 1 &&
+        MarkdownTableDividerRegex.matches(divider)
+}
+
+private fun isMarkdownTableRow(line: String): Boolean {
+    val trimmed = line.trim()
+    return trimmed.isNotBlank() &&
+        trimmed.contains('|') &&
+        !trimmed.startsWith(MARKDOWN_FENCE)
+}
+
+private fun parseMarkdownTableCells(line: String): List<String> {
+    val trimmed = line.trim().trim('|')
+    return trimmed.split('|').map { cell -> cell.trim() }
 }
 
 private fun markdownInlineText(text: String): AnnotatedString {
@@ -2902,29 +3003,33 @@ private fun highlightRules(kind: SourceKind): List<HighlightRule> {
 }
 
 private fun codeKeywordStyle(): SpanStyle {
-    return SpanStyle(color = ForgeGold, fontWeight = FontWeight.SemiBold)
+    return SpanStyle(color = EpochCopper, fontWeight = FontWeight.SemiBold)
 }
 
 private fun codeStringStyle(): SpanStyle {
-    return SpanStyle(color = ForgeMint)
+    return SpanStyle(color = EpochBone, fontWeight = FontWeight.SemiBold)
 }
 
 private fun codeCommentStyle(): SpanStyle {
-    return SpanStyle(color = ForgePaper.copy(alpha = 0.46f), fontWeight = FontWeight.Medium)
+    return SpanStyle(color = EpochMineral, fontWeight = FontWeight.Medium)
 }
 
 private fun codeAnnotationStyle(): SpanStyle {
-    return SpanStyle(color = ForgePeach, fontWeight = FontWeight.SemiBold)
+    return SpanStyle(color = EpochMineral, fontWeight = FontWeight.SemiBold)
 }
 
 private fun codeNumberStyle(): SpanStyle {
-    return SpanStyle(color = ForgeBlue, fontWeight = FontWeight.SemiBold)
+    return SpanStyle(
+        color = EpochInk,
+        background = EpochBone.copy(alpha = 0.82f),
+        fontWeight = FontWeight.SemiBold,
+    )
 }
 
 private fun inlineCodeStyle(): SpanStyle {
     return SpanStyle(
-        color = ForgeRust,
-        background = ForgeMint,
+        color = EpochCopper,
+        background = EpochBone,
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.SemiBold,
     )
@@ -3603,9 +3708,11 @@ private const val JSON_CONSTRAINTS = "constraints"
 private const val JSON_OUTPUT = "output"
 private const val JSON_MARKED_READY = "markedReady"
 private const val MARKDOWN_FENCE = "```"
+private const val EYE_EMOJI = "\uD83D\uDC41\uFE0F"
 private val MarkdownHeadingRegex = Regex("^(#{1,6})\\s+(.+)$")
 private val MarkdownBulletRegex = Regex("^[-*+]\\s+(.+)$")
 private val MarkdownNumberedRegex = Regex("^(\\d+)\\.\\s+(.+)$")
+private val MarkdownTableDividerRegex = Regex("^\\|?\\s*:?-{3,}:?\\s*(\\|\\s*:?-{3,}:?\\s*)+\\|?$")
 private val KotlinCommentRegex = Regex("//.*$|#.*$")
 private val DataCommentRegex = Regex("#.*$")
 private val XmlCommentRegex = Regex("<!--.*?-->")
