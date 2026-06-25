@@ -170,6 +170,7 @@ private fun PocketForgeApp(
     var selectedFilePreview by remember { mutableStateOf<GitHubFilePreview?>(null) }
     var filePreviewLoading by remember { mutableStateOf(false) }
     var filePreviewError by remember { mutableStateOf("") }
+    var contextPackFiles by remember { mutableStateOf<List<ContextPackFile>>(emptyList()) }
     var taskTitle by remember { mutableStateOf(initialDraft.title) }
     var taskGoal by remember { mutableStateOf(initialDraft.goal) }
     var taskRepo by remember { mutableStateOf(initialDraft.repo) }
@@ -241,6 +242,7 @@ private fun PocketForgeApp(
     fun selectRepo(repo: GitHubRepo) {
         selectedGithubRepo = repo
         fileSearchQuery = ""
+        contextPackFiles = emptyList()
         loadContents(repo, "")
     }
 
@@ -260,6 +262,32 @@ private fun PocketForgeApp(
                 is GitHubUiResult.Error -> {
                     selectedFilePreview = null
                     filePreviewError = result.message
+                }
+            }
+        }
+    }
+
+    fun toggleContextPackFile(item: GitHubContentItem) {
+        val repo = selectedGithubRepo ?: return
+        if (!item.isFile) return
+
+        if (contextPackFiles.any { it.path == item.path }) {
+            contextPackFiles = contextPackFiles.filterNot { it.path == item.path }
+            return
+        }
+
+        if (contextPackFiles.size >= MAX_CONTEXT_PACK_FILES) return
+
+        contextPackFiles = contextPackFiles + ContextPackFile.loading(item)
+        githubActions.loadFile(repo, item) { result ->
+            contextPackFiles = contextPackFiles.map { existingFile ->
+                if (existingFile.path != item.path) {
+                    existingFile
+                } else {
+                    when (result) {
+                        is GitHubUiResult.Success -> result.value.toContextPackFile()
+                        is GitHubUiResult.Error -> ContextPackFile.error(item = item, message = result.message)
+                    }
                 }
             }
         }
@@ -304,6 +332,7 @@ private fun PocketForgeApp(
                     reposError = ""
                     repoContentsError = ""
                     filePreviewError = ""
+                    contextPackFiles = emptyList()
                     githubTokenMessage = "GitHub token removed from this device."
                 }
 
@@ -462,11 +491,14 @@ private fun PocketForgeApp(
                             contentsError = repoContentsError,
                             fileLoading = filePreviewLoading,
                             fileError = filePreviewError,
+                            contextPackFiles = contextPackFiles,
                             onSearchChange = { fileSearchQuery = it },
                             onRefresh = {
                                 selectedGithubRepo?.let { repo -> loadContents(repo, currentRepoPath) }
                             },
                             onOpenItem = ::openContentItem,
+                            onToggleContextFile = ::toggleContextPackFile,
+                            onClearContextPack = { contextPackFiles = emptyList() },
                             onBack = ::openParentDirectory,
                         )
 
@@ -1069,9 +1101,12 @@ private fun FilesScreen(
     contentsError: String,
     fileLoading: Boolean,
     fileError: String,
+    contextPackFiles: List<ContextPackFile>,
     onSearchChange: (String) -> Unit,
     onRefresh: () -> Unit,
     onOpenItem: (GitHubContentItem) -> Unit,
+    onToggleContextFile: (GitHubContentItem) -> Unit,
+    onClearContextPack: () -> Unit,
     onBack: () -> Unit,
 ) {
     val visibleContents = remember(contents, searchQuery) {
@@ -1184,15 +1219,25 @@ private fun FilesScreen(
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 visibleContents.forEach { item ->
+                    val contextSelected = contextPackFiles.any { contextFile -> contextFile.path == item.path }
                     FileBrowserRow(
                         item = item,
                         selected = item.path == selectedFile?.path,
+                        contextSelected = contextSelected,
+                        contextEnabled = contextSelected || contextPackFiles.size < MAX_CONTEXT_PACK_FILES,
                         onClick = { onOpenItem(item) },
+                        onToggleContext = { onToggleContextFile(item) },
                     )
                 }
             }
         }
     }
+
+    ContextPackPanel(
+        selectedRepo = selectedRepo,
+        files = contextPackFiles,
+        onClear = onClearContextPack,
+    )
 
     FilePreviewPanel(
         file = selectedFile,
@@ -1205,7 +1250,10 @@ private fun FilesScreen(
 private fun FileBrowserRow(
     item: GitHubContentItem,
     selected: Boolean,
+    contextSelected: Boolean,
+    contextEnabled: Boolean,
     onClick: () -> Unit,
+    onToggleContext: () -> Unit,
 ) {
     Surface(
         modifier = Modifier
@@ -1247,7 +1295,174 @@ private fun FileBrowserRow(
                 text = if (item.isDirectory) "Open" else "Read",
                 color = if (selected) ForgeGold else ForgeInk,
             )
+            if (item.isFile) {
+                TextButton(
+                    enabled = contextEnabled,
+                    onClick = onToggleContext,
+                ) {
+                    Text(
+                        text = if (contextSelected) "In pack" else "Add",
+                        color = when {
+                            contextSelected -> ForgeGold
+                            contextEnabled -> ForgeRust
+                            else -> ForgeMuted
+                        },
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                    )
+                }
+            }
         }
+    }
+}
+
+@Composable
+private fun ContextPackPanel(
+    selectedRepo: GitHubRepo?,
+    files: List<ContextPackFile>,
+    onClear: () -> Unit,
+) {
+    val clipboardManager = LocalClipboardManager.current
+    val bundleText = remember(selectedRepo, files) {
+        buildContextPackBundle(repo = selectedRepo, files = files)
+    }
+    val readyFiles = files.count { it.status == ContextPackStatus.Ready }
+    val loadingFiles = files.count { it.status == ContextPackStatus.Loading }
+    val skippedFiles = files.count { it.status == ContextPackStatus.Skipped || it.status == ContextPackStatus.Error }
+    val readyBytes = files.filter { it.status == ContextPackStatus.Ready }.sumOf { it.sizeBytes }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = ForgePaper,
+        border = BorderStroke(1.dp, ForgeLine),
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    LabelText(text = "Context pack", dark = true)
+                    Text(
+                        text = if (files.isEmpty()) "Select files for an agent handoff" else "$readyFiles ready, $skippedFiles skipped",
+                        color = ForgeInk,
+                        fontSize = 18.sp,
+                        lineHeight = 21.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+                StatusChip(text = "${files.size}/$MAX_CONTEXT_PACK_FILES", color = ForgeSlate)
+                StatusChip(text = readyBytes.formatBytes(), color = ForgeRust)
+            }
+
+            Text(
+                text = if (files.isEmpty()) {
+                    "Add readable files from the browser to assemble a copyable source bundle. This only reads GitHub file blobs."
+                } else {
+                    "Bundle preview is local text only. Binary, too-large, and failed reads stay listed as skipped."
+                },
+                color = ForgeMuted,
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+                fontWeight = FontWeight.Medium,
+            )
+
+            if (files.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    files.forEach { file ->
+                        ContextPackFileRow(file = file)
+                    }
+                }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    modifier = Modifier.weight(1f),
+                    enabled = readyFiles > 0 && loadingFiles == 0,
+                    onClick = { clipboardManager.setText(AnnotatedString(bundleText)) },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ForgeInk,
+                        contentColor = ForgePaper,
+                    ),
+                    shape = MaterialTheme.shapes.medium,
+                ) {
+                    Text(
+                        text = if (loadingFiles > 0) "Reading" else "Copy bundle",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                }
+                TextButton(
+                    modifier = Modifier.weight(1f),
+                    enabled = files.isNotEmpty(),
+                    onClick = onClear,
+                ) {
+                    Text(
+                        text = "Clear",
+                        color = if (files.isNotEmpty()) ForgeRust else ForgeMuted,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                }
+            }
+
+            if (files.isNotEmpty()) {
+                CodePreview(
+                    content = bundleText.take(MAX_CONTEXT_PACK_PREVIEW_CHARS),
+                    fileName = "context-pack.txt",
+                    showLineNumbers = false,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContextPackFileRow(file: ContextPackFile) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        StatusChip(
+            text = file.status.label,
+            color = when (file.status) {
+                ContextPackStatus.Loading -> ForgeSlate
+                ContextPackStatus.Ready -> ForgeGreen
+                ContextPackStatus.Skipped -> ForgeGold
+                ContextPackStatus.Error -> ForgeRust
+            },
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = file.name,
+                color = ForgeInk,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = file.detail,
+                color = ForgeMuted,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Text(
+            text = file.sizeBytes.formatBytes(),
+            color = ForgeMuted,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }
 
@@ -2752,6 +2967,49 @@ private data class HighlightSpan(
     val style: SpanStyle,
 )
 
+private data class ContextPackFile(
+    val name: String,
+    val path: String,
+    val sizeBytes: Long,
+    val mode: String,
+    val status: ContextPackStatus,
+    val content: String,
+    val detail: String,
+) {
+    companion object {
+        fun loading(item: GitHubContentItem): ContextPackFile {
+            return ContextPackFile(
+                name = item.name,
+                path = item.path,
+                sizeBytes = item.size,
+                mode = "Loading",
+                status = ContextPackStatus.Loading,
+                content = "",
+                detail = "Reading file from GitHub...",
+            )
+        }
+
+        fun error(item: GitHubContentItem, message: String): ContextPackFile {
+            return ContextPackFile(
+                name = item.name,
+                path = item.path,
+                sizeBytes = item.size,
+                mode = "Error",
+                status = ContextPackStatus.Error,
+                content = "",
+                detail = message,
+            )
+        }
+    }
+}
+
+private enum class ContextPackStatus(val label: String) {
+    Loading("Reading"),
+    Ready("Ready"),
+    Skipped("Skipped"),
+    Error("Error"),
+}
+
 private enum class SourceKind {
     KotlinLike,
     Xml,
@@ -2762,6 +3020,61 @@ private enum class SourceKind {
 private fun GitHubFilePreview.isMarkdownFile(): Boolean {
     val extension = name.substringAfterLast('.', missingDelimiterValue = "").lowercase()
     return extension == "md" || extension == "markdown"
+}
+
+private fun GitHubFilePreview.toContextPackFile(): ContextPackFile {
+    val skippedReason = when {
+        tooLarge -> "Skipped because it is larger than the preview limit ($MAX_PREVIEW_SIZE_LABEL)."
+        binary -> "Skipped because it is binary or not valid UTF-8."
+        else -> ""
+    }
+
+    return ContextPackFile(
+        name = name,
+        path = path,
+        sizeBytes = sizeBytes,
+        mode = mode,
+        status = if (skippedReason.isBlank()) ContextPackStatus.Ready else ContextPackStatus.Skipped,
+        content = if (skippedReason.isBlank()) content else "",
+        detail = skippedReason.ifBlank { "$mode source ready for context." },
+    )
+}
+
+private fun buildContextPackBundle(
+    repo: GitHubRepo?,
+    files: List<ContextPackFile>,
+): String {
+    return buildString {
+        appendLine("# PocketForge Context Pack")
+        appendLine()
+        appendLine("Repository: ${repo?.fullName ?: "No repository selected"}")
+        appendLine("Branch: ${repo?.defaultBranch ?: "unknown"}")
+        appendLine("Mode: READ ONLY / NO EDIT / NO RUN")
+        appendLine("Files selected: ${files.size}")
+        appendLine("Readable files: ${files.count { it.status == ContextPackStatus.Ready }}")
+        appendLine()
+
+        val skippedFiles = files.filter { it.status == ContextPackStatus.Skipped || it.status == ContextPackStatus.Error }
+        if (skippedFiles.isNotEmpty()) {
+            appendLine("## Skipped")
+            skippedFiles.forEach { file ->
+                appendLine("- ${file.path}: ${file.detail}")
+            }
+            appendLine()
+        }
+
+        files.filter { it.status == ContextPackStatus.Ready }.forEach { file ->
+            appendLine("## File: ${file.path}")
+            appendLine()
+            appendLine("Mode: ${file.mode}")
+            appendLine("Size: ${file.sizeBytes.formatBytes()}")
+            appendLine()
+            appendLine("````")
+            appendLine(file.content.trimEnd())
+            appendLine("````")
+            appendLine()
+        }
+    }.trim()
 }
 
 private fun Long.formatBytes(): String {
@@ -3709,6 +4022,8 @@ private const val JSON_OUTPUT = "output"
 private const val JSON_MARKED_READY = "markedReady"
 private const val MARKDOWN_FENCE = "```"
 private const val EYE_EMOJI = "\uD83D\uDC41\uFE0F"
+private const val MAX_CONTEXT_PACK_FILES = 8
+private const val MAX_CONTEXT_PACK_PREVIEW_CHARS = 16_000
 private val MarkdownHeadingRegex = Regex("^(#{1,6})\\s+(.+)$")
 private val MarkdownBulletRegex = Regex("^[-*+]\\s+(.+)$")
 private val MarkdownNumberedRegex = Regex("^(\\d+)\\.\\s+(.+)$")
